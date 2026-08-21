@@ -82,7 +82,16 @@ class VasyanDumpWriterTest extends AbstractMinecraftTest {
         when(vasyan.getActionExecutor()).thenReturn(executor);
         when(executor.getStateSummary()).thenReturn("idle");
         when(executor.getLastPlanRecord()).thenReturn(new PlanRecord(
-            "look around", "sys prompt", "user prompt", "raw", "reason", "plan", Collections.emptyList(), 123, "m", false));
+            "look around",
+            "sys prompt",
+            "user prompt",
+            "raw",
+            "reason",
+            "plan",
+            Collections.emptyList(),
+            123,
+            "m",
+            false));
         when(vasyan.getMemory()).thenReturn(memory);
         when(memory.getCurrentGoal()).thenReturn("");
         when(memory.getRecentActions(20)).thenReturn(Collections.emptyList());
