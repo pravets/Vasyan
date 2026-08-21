@@ -27,6 +27,11 @@ public class TaskPlanner {
     private final AsyncLLMClient llmClient;
     private final LLMCache llmCache;
     private final OpenAICompatibleClient baseClient;
+    private volatile PlanRecord lastPlanRecord;
+
+    public PlanRecord getLastPlanRecord() {
+        return lastPlanRecord;
+    }
 
     public TaskPlanner() {
         String provider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
@@ -124,6 +129,19 @@ public class TaskPlanner {
                         "ok, " + parsed.getTasks().size() + " tasks, plan=\"" + truncate(parsed.getPlan(), 200)
                             + "\", tasks=" + truncate(describeTasks(parsed.getTasks()), 300));
 
+                    lastPlanRecord = new PlanRecord(
+                        command,
+                        systemPrompt,
+                        userPrompt,
+                        content,
+                        parsed.getReasoning(),
+                        parsed.getPlan(),
+                        parsed.getTasks(),
+                        response.getLatencyMs(),
+                        response.getModel(),
+                        response.isFromCache()
+                    );
+
                     // "Gather until the inventory is full" is deterministic:
                     // mark every gather task with fill=true (the LLM does not
                     // get to decide the quantity for this quantifier).
@@ -212,6 +230,9 @@ public class TaskPlanner {
     /**
      * Legacy blocking variant. Blocks the calling thread up to the configured
      * LLM timeout. Prefer {@link #planTasksAsync(VasyanEntity, String)}.
+     *
+     * <p>The planning snapshot is recorded by {@link #planTasksAsync(VasyanEntity, String)}
+     * and is available via {@link #getLastPlanRecord()} after this call returns.</p>
      *
      * @deprecated Use planTasksAsync instead.
      */
