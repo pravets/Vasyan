@@ -8,6 +8,8 @@ import ru.pravets.vasyan.action.ActionExecutor;
 import ru.pravets.vasyan.chat.ChatCommandParser;
 import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.debug.AgentDebugBuffer;
+import ru.pravets.vasyan.debug.VasyanDumpWriter;
+import ru.pravets.vasyan.debug.VasyanEnvironmentScanner;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.entity.VasyanManager;
@@ -20,6 +22,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 public class VasyanCommands {
@@ -48,6 +52,14 @@ public class VasyanCommands {
             .then(Commands.literal("inventory")
                 .then(Commands.argument("name", VasyanNameArgumentType.vasyanName())
                     .executes(VasyanCommands::showInventory)))
+            .then(Commands.literal("dump")
+                .then(Commands.argument("name", VasyanNameArgumentType.vasyanName())
+                    .executes(ctx -> dumpVasyan(ctx, false))
+                    .then(Commands.literal("with-prompt")
+                        .executes(ctx -> dumpVasyan(ctx, true)))))
+            .then(Commands.literal("look")
+                .then(Commands.argument("name", VasyanNameArgumentType.vasyanName())
+                    .executes(VasyanCommands::lookVasyan)))
             .then(Commands.literal("tp")
                 .then(Commands.argument("name", VasyanNameArgumentType.vasyanName())
                     .executes(VasyanCommands::tpVasyan)))
@@ -331,6 +343,45 @@ public class VasyanCommands {
         // Single dispatch path (name matching, "all", nearest, stay-trigger)
         // shared with voice commands - see VasyanCommandDispatcher.
         return VasyanCommandDispatcher.dispatch(source, name + " " + command);
+    }
+
+    private static int dumpVasyan(CommandContext<CommandSourceStack> context, boolean includePrompt) {
+        String name = VasyanNameArgumentType.getName(context, "name");
+        CommandSourceStack source = context.getSource();
+
+        VasyanEntity vasyan = VasyanMod.getVasyanManager().getVasyan(name);
+        if (vasyan == null) {
+            source.sendFailure(Component.literal("§cVasyan not found: " + name));
+            return 0;
+        }
+
+        try {
+            Path file = VasyanDumpWriter.write(vasyan, includePrompt);
+            source.sendSuccess(() -> Component.literal(
+                "§aDumped " + name + " to §f" + file), false);
+            return 1;
+        } catch (IOException e) {
+            VasyanMod.LOGGER.error("Failed to write dump for {}", name, e);
+            source.sendFailure(Component.literal("§cFailed to write dump: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    private static int lookVasyan(CommandContext<CommandSourceStack> context) {
+        String name = VasyanNameArgumentType.getName(context, "name");
+        CommandSourceStack source = context.getSource();
+
+        VasyanEntity vasyan = VasyanMod.getVasyanManager().getVasyan(name);
+        if (vasyan == null) {
+            source.sendFailure(Component.literal("§cVasyan not found: " + name));
+            return 0;
+        }
+
+        VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+        String description = VasyanEnvironmentScanner.describe(scan);
+        vasyan.sendChatMessage(description);
+        source.sendSuccess(() -> Component.literal("§7" + name + " looks around"), false);
+        return 1;
     }
 }
 
