@@ -4,6 +4,7 @@ import ru.pravets.vasyan.VasyanMod;
 import ru.pravets.vasyan.action.ActionExecutor;
 import ru.pravets.vasyan.chat.ChatCommandParser;
 import ru.pravets.vasyan.chat.NameMatcher;
+import ru.pravets.vasyan.debug.VasyanEnvironmentScanner;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanManager;
 import net.minecraft.commands.CommandSourceStack;
@@ -103,6 +104,13 @@ public final class VasyanCommandDispatcher {
             vasyan.getNavigation().stop();
             vasyan.getMemory().clearTaskQueue();
             source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " stopped"), false);
+            return;
+        }
+
+        if (ChatCommandParser.isLookCommand(lower)) {
+            String description = VasyanEnvironmentScanner.describe(VasyanEnvironmentScanner.scan(vasyan));
+            vasyan.sendChatMessage(description);
+            source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " looks around"), false);
             return;
         }
 
