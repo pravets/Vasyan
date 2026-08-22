@@ -28,6 +28,8 @@ Names may contain letters (any script), digits and `_ - . +`. Cyrillic names are
 - `/vasyan tp <name>` — teleport a bot to a safe spot near you.
 - `/vasyan tell <name> <task>` — give a natural-language task.
 - `/vasyan inv <name>` — open the bot's inventory.
+- `/vasyan dump <name> [with-prompt]` — save full bot state to `logs/vasyan-dumps/<bot>-<timestamp>.json`.
+- `/vasyan look <name>` — brief deterministic description of the bot's surroundings.
 
 ## Natural-language tasks
 
@@ -37,6 +39,7 @@ Press **K** to open the Vasyan panel, or use `/vasyan tell`:
 - "build a small house here"
 - "follow me"
 - "gather wood from that forest"
+- "what do you see?" — get a brief deterministic description of the selected bot's surroundings.
 
 ## Configuration
 
