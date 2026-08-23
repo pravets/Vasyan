@@ -53,6 +53,7 @@ public final class VasyanDumpWriter {
         Path file = uniquePath(baseDir, baseName);
         JsonObject dump = buildDump(vasyan, includePrompt);
         Files.writeString(file, GSON.toJson(dump));
+        writeViewerHtml(file, dump);
         return file;
     }
 
@@ -197,5 +198,20 @@ public final class VasyanDumpWriter {
             arr.add(event);
         }
         return arr;
+    }
+
+    private static void writeViewerHtml(Path jsonFile, JsonObject dump) throws IOException {
+        String template;
+        try (var in = VasyanDumpWriter.class.getResourceAsStream("/vasyan-dump-3d-viewer.html")) {
+            if (in == null) {
+                return;
+            }
+            template = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        String json = GSON.toJson(dump);
+        String html = template.replace("window.VASYAN_DUMP = null;",
+            "window.VASYAN_DUMP = " + json + ";");
+        Path htmlFile = jsonFile.resolveSibling(jsonFile.getFileName().toString().replace(".json", ".html"));
+        Files.writeString(htmlFile, html);
     }
 }

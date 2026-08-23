@@ -39,6 +39,7 @@
   </script>
 </head>
 <body>
+  <script id="vasyan-dump-data">window.VASYAN_DUMP = null;</script>
   <div id="info">
     <strong>Vasyan Dump 3D Viewer</strong><br/>
     <span id="filename">—</span><br/><br/>
@@ -164,10 +165,15 @@
       return resp.json();
     }
 
+    // Embedded dump injected by VasyanDumpWriter
+    if (window.VASYAN_DUMP) {
+      loadDump(window.VASYAN_DUMP, 'dump');
+    }
+
     // URL param ?dump=...
     const params = new URLSearchParams(window.location.search);
     const dumpUrl = params.get('dump');
-    if (dumpUrl) {
+    if (dumpUrl && !window.VASYAN_DUMP) {
       fetchDump(dumpUrl).then(d => loadDump(d, dumpUrl)).catch(e => alert('Ошибка загрузки dump: ' + e));
     }
 
