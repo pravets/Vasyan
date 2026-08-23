@@ -149,6 +149,35 @@
     }
 
     function hashColor(str) {
+      const palette = {
+        'minecraft:sand': 0xf6d58a,
+        'minecraft:water': 0x3f76e4,
+        'minecraft:grass_block': 0x5a8c38,
+        'minecraft:dirt': 0x866043,
+        'minecraft:stone': 0x808080,
+        'minecraft:cobblestone': 0x727272,
+        'minecraft:deepslate': 0x3d3d42,
+        'minecraft:gravel': 0x817d7a,
+        'minecraft:coal_ore': 0x464646,
+        'minecraft:iron_ore': 0xd4a47a,
+        'minecraft:copper_ore': 0xb87333,
+        'minecraft:gold_ore': 0xffd700,
+        'minecraft:redstone_ore': 0xa62b2b,
+        'minecraft:lapis_ore': 0x234abb,
+        'minecraft:diamond_ore': 0x4aedd7,
+        'minecraft:emerald_ore': 0x17dd62,
+        'minecraft:oak_log': 0x6b5229,
+        'minecraft:spruce_log': 0x3b291a,
+        'minecraft:birch_log': 0xc4bda1,
+        'minecraft:oak_leaves': 0x3d8c28,
+        'minecraft:spruce_leaves': 0x2d5a1e,
+        'minecraft:birch_leaves': 0x578f3f,
+        'minecraft:sugar_cane': 0x6fae4b,
+        'minecraft:tall_grass': 0x5c9e36,
+        'minecraft:grass': 0x5c9e36,
+        'minecraft:bedrock': 0x212121
+      };
+      if (palette[str]) return palette[str];
       let h = 0;
       for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
       const c = (h & 0x00ffffff).toString(16).padStart(6, '0');
@@ -195,13 +224,13 @@
 
       // Visible blocks
       if (vision.visibleSummary) {
+        const dirAngles = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
         const entries = vision.visibleSummary.matchAll(/([\w:]+)\s+x(\d+)\s+\((\d+)m\s+([NSEW]+)\)/g);
         for (const m of entries) {
           const id = m[1]; const count = parseInt(m[2]); const dist = parseInt(m[3]); const dir = m[4];
-          // approximate position using direction/distance
-          const ang = dir.split('').reduce((a, c) => a + ({N:0,NE:-45,E:-90,SE:-135,S:180,SW:135,W:90,NW:45}[c]||0)/dir.length, 0) * Math.PI/180;
-          const vx = Math.round(botX - Math.sin(ang) * dist);
-          const vz = Math.round(botZ - Math.cos(ang) * dist);
+          const ang = (dirAngles[dir] || 0) * Math.PI / 180;
+          const vx = Math.round(botX + Math.sin(ang) * dist);
+          const vz = Math.round(botZ + Math.cos(ang) * dist);
           const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
           const mat = new THREE.MeshBasicMaterial({ color: 0xffcc00, wireframe: true });
           const mesh = new THREE.Mesh(geo, mat);
@@ -212,12 +241,12 @@
         }
       }
 
-      // Ground plane at bot Y
+      // Ground plane well below the lowest surface block
       const planeGeo = new THREE.PlaneGeometry(128, 128);
-      const planeMat = new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.DoubleSide, transparent: true, opacity: 0.3 });
+      const planeMat = new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.DoubleSide, transparent: true, opacity: 0.15 });
       const plane = new THREE.Mesh(planeGeo, planeMat);
       plane.rotation.x = -Math.PI / 2;
-      plane.position.set(botX, botY - 0.01, botZ);
+      plane.position.set(botX, botY - 8, botZ);
       scene.add(plane);
     }
 
