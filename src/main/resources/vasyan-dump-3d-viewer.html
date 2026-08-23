@@ -103,9 +103,9 @@
       clearSceneObjects();
 
       const vision = data.vision || {};
-      const botX = (data.state && data.state.x) || 0;
-      const botY = (data.state && data.state.y) || 0;
-      const botZ = (data.state && data.state.z) || 0;
+      const botX = (data.meta && data.meta.x) || 0;
+      const botY = (data.meta && data.meta.y) || 0;
+      const botZ = (data.meta && data.meta.z) || 0;
 
       // Center scene on bot
       controls.target.set(botX, botY, botZ);
