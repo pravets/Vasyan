@@ -67,6 +67,13 @@ public final class VasyanNetworking {
             ServerboundVoiceChunkPacket::decode,
             VasyanNetworking::handleVoiceChunk,
             Optional.of(NetworkDirection.PLAY_TO_SERVER));
+
+        CHANNEL.registerMessage(id++,
+            ClientboundScanDebugPacket.class,
+            ClientboundScanDebugPacket::encode,
+            ClientboundScanDebugPacket::decode,
+            VasyanNetworking::handleScanDebug,
+            Optional.of(NetworkDirection.PLAY_TO_CLIENT));
     }
 
     private static void handleVoiceChunk(ServerboundVoiceChunkPacket packet,
@@ -128,6 +135,14 @@ public final class VasyanNetworking {
         NetworkEvent.Context ctx = contextSupplier.get();
         ctx.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
             () -> () -> ru.pravets.vasyan.client.VasyanGUI.setInventoryView(packet.vasyanName(), packet.stacks())));
+        ctx.setPacketHandled(true);
+    }
+
+    private static void handleScanDebug(ClientboundScanDebugPacket packet,
+                                        Supplier<NetworkEvent.Context> contextSupplier) {
+        NetworkEvent.Context ctx = contextSupplier.get();
+        ctx.enqueueWork(() -> DistExecutor.unsafeRunWhenOn(Dist.CLIENT,
+            () -> () -> ru.pravets.vasyan.client.VasyanScanDebugRenderer.setScan(packet)));
         ctx.setPacketHandled(true);
     }
 }

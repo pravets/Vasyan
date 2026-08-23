@@ -7,10 +7,16 @@ import ru.pravets.vasyan.chat.NameMatcher;
 import ru.pravets.vasyan.debug.VasyanEnvironmentScanner;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanManager;
+import ru.pravets.vasyan.memory.VisionScanner;
+import ru.pravets.vasyan.network.ClientboundScanDebugPacket;
+import ru.pravets.vasyan.network.VasyanNetworking;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.network.PacketDistributor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -109,9 +115,18 @@ public final class VasyanCommandDispatcher {
         }
 
         if (ChatCommandParser.isLookCommand(lower) || ChatCommandParser.isLookCommand(lowerWithoutName)) {
-            String description = VasyanEnvironmentScanner.describe(VasyanEnvironmentScanner.scan(vasyan));
+            VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+            String description = VasyanEnvironmentScanner.describe(scan);
             vasyan.sendChatMessage(description);
             source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " looks around"), false);
+
+            List<BlockPos> visible = new ArrayList<>();
+            for (List<BlockPos> positions : VisionScanner.getVisibleBlocks(vasyan).values()) {
+                visible.addAll(positions);
+            }
+            VasyanNetworking.CHANNEL.send(
+                PacketDistributor.TRACKING_ENTITY.with(() -> vasyan),
+                new ClientboundScanDebugPacket(vasyan.blockPosition(), scan.surfaceBlocks(), visible));
             return;
         }
 
