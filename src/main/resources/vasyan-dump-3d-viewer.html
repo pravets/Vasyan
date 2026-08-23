@@ -65,6 +65,7 @@
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -91,22 +92,23 @@
     const TEXTURE_BASE = 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20.1/assets/minecraft/textures/block/';
 
     const BLOCK_TINTS = {
-      'minecraft:grass_block': 0x5a8c38,
-      'minecraft:grass': 0x5a8c38,
-      'minecraft:tall_grass': 0x5a8c38,
-      'minecraft:fern': 0x5a8c38,
-      'minecraft:sugar_cane': 0x6fae4b,
-      'minecraft:vines': 0x5a8c38,
-      'minecraft:oak_leaves': 0x3d8c28,
-      'minecraft:birch_leaves': 0x578f3f,
-      'minecraft:spruce_leaves': 0x2d5a1e,
-      'minecraft:jungle_leaves': 0x30bb0b,
-      'minecraft:acacia_leaves': 0x5a8c38,
-      'minecraft:dark_oak_leaves': 0x3d8c28,
-      'minecraft:mangrove_leaves': 0x5a8c38,
-      'minecraft:cherry_leaves': 0xffb7c5,
-      'minecraft:azalea_leaves': 0x5a8c38,
-      'minecraft:flowering_azalea_leaves': 0x5a8c38,
+      'minecraft:grass_block': 0x91BD59,
+      'minecraft:grass': 0x91BD59,
+      'minecraft:tall_grass': 0x91BD59,
+      'minecraft:fern': 0x91BD59,
+      'minecraft:sugar_cane': 0x91BD59,
+      'minecraft:vines': 0x91BD59,
+      'minecraft:lily_pad': 0x208030,
+      'minecraft:oak_leaves': 0x48B518,
+      'minecraft:birch_leaves': 0x80A755,
+      'minecraft:spruce_leaves': 0x619961,
+      'minecraft:jungle_leaves': 0x48B518,
+      'minecraft:acacia_leaves': 0x48B518,
+      'minecraft:dark_oak_leaves': 0x48B518,
+      'minecraft:mangrove_leaves': 0x48B518,
+      'minecraft:cherry_leaves': 0xFFB7C5,
+      'minecraft:azalea_leaves': 0x48B518,
+      'minecraft:flowering_azalea_leaves': 0x48B518,
       'minecraft:water': 0xffffff
     };
 
