@@ -142,19 +142,19 @@
       });
       textureCache.set(blockId, material);
       const local = window.VASYAN_TEXTURES && window.VASYAN_TEXTURES[blockId];
-      if (local) {
-        textureLoader.load(local,
-          tex => { material.color.setHex(0xffffff); material.map = tex; material.needsUpdate = true; },
-          undefined,
-          () => { /* fallback color stays */ }
-        );
-      } else {
-        textureLoader.load(textureUrl(blockId),
-          tex => { material.color.setHex(0xffffff); material.map = tex; material.needsUpdate = true; },
-          undefined,
-          () => { /* fallback color stays */ }
-        );
-      }
+      const url = local || textureUrl(blockId);
+      textureLoader.load(url,
+        tex => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.magFilter = THREE.NearestFilter;
+          tex.minFilter = THREE.NearestFilter;
+          material.color.setHex(0xffffff);
+          material.map = tex;
+          material.needsUpdate = true;
+        },
+        undefined,
+        () => { /* fallback color stays */ }
+      );
       return material;
     }
 
@@ -234,8 +234,10 @@
 
       // Visible blocks (actual scanned positions)
       for (const b of vision.visibleBlocks || []) {
-        const geo = new THREE.BoxGeometry(0.85, 0.85, 0.85);
-        const mat = new THREE.MeshBasicMaterial({ color: 0xffcc00, wireframe: true });
+        const geo = new THREE.BoxGeometry(0.95, 0.95, 0.95);
+        const mat = getMaterial(b.id).clone();
+        mat.emissive = new THREE.Color(0xffaa00);
+        mat.emissiveIntensity = 0.35;
         const mesh = new THREE.Mesh(geo, mat);
         mesh.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
         mesh.userData = { tooltip: `${b.id}\n(${b.x}, ${b.y}, ${b.z})` };

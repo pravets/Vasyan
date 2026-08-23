@@ -115,22 +115,9 @@ public final class VasyanCommandDispatcher {
         }
 
         if (ChatCommandParser.isLookCommand(lower) || ChatCommandParser.isLookCommand(lowerWithoutName)) {
-            VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
-            String description = VasyanEnvironmentScanner.describe(scan);
-            vasyan.sendChatMessage(description);
+            triggerLookDebug(vasyan);
+            vasyan.sendChatMessage(VasyanEnvironmentScanner.describe(VasyanEnvironmentScanner.scan(vasyan)));
             source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " looks around"), false);
-
-            List<BlockPos> visible = new ArrayList<>();
-            for (List<BlockPos> positions : VisionScanner.getVisibleBlocks(vasyan).values()) {
-                visible.addAll(positions);
-            }
-            List<BlockPos> surfacePositions = new ArrayList<>();
-            for (VasyanEnvironmentScanner.BlockEntry entry : scan.surfaceBlocks()) {
-                surfacePositions.add(new BlockPos(entry.x(), entry.y(), entry.z()));
-            }
-            VasyanNetworking.CHANNEL.send(
-                PacketDistributor.TRACKING_ENTITY.with(() -> vasyan),
-                new ClientboundScanDebugPacket(vasyan.blockPosition(), surfacePositions, visible));
             return;
         }
 
@@ -141,6 +128,25 @@ public final class VasyanCommandDispatcher {
                 VasyanMod.LOGGER.warn("Command processing failed for {}: {}", vasyan.getVasyanName(), e.toString());
             }
         });
+    }
+
+    /**
+     * Sends a debug overlay packet to every player tracking the Vasyan.
+     * Used by the deterministic look handler and by {@code /vasyan look}.
+     */
+    public static void triggerLookDebug(VasyanEntity vasyan) {
+        VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+        List<BlockPos> visible = new ArrayList<>();
+        for (List<BlockPos> positions : VisionScanner.getVisibleBlocks(vasyan).values()) {
+            visible.addAll(positions);
+        }
+        List<BlockPos> surfacePositions = new ArrayList<>();
+        for (VasyanEnvironmentScanner.BlockEntry entry : scan.surfaceBlocks()) {
+            surfacePositions.add(new BlockPos(entry.x(), entry.y(), entry.z()));
+        }
+        VasyanNetworking.CHANNEL.send(
+            PacketDistributor.TRACKING_ENTITY.with(() -> vasyan),
+            new ClientboundScanDebugPacket(vasyan.blockPosition(), surfacePositions, visible));
     }
 
     private static VasyanEntity nearestVasyan(CommandSourceStack source, VasyanManager manager) {

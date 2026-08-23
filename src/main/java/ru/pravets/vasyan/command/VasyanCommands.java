@@ -377,6 +377,7 @@ public class VasyanCommands {
             return 0;
         }
 
+        VasyanCommandDispatcher.triggerLookDebug(vasyan);
         VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
         String description = VasyanEnvironmentScanner.describe(scan);
         vasyan.sendChatMessage(description);
