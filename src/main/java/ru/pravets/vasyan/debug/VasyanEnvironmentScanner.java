@@ -1,5 +1,6 @@
 package ru.pravets.vasyan.debug;
 
+import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.memory.VisionScanner;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import net.minecraft.core.BlockPos;
@@ -21,9 +22,6 @@ import java.util.List;
  * itself. Used by {@code /vasyan look} and by the full-state dump.
  */
 public final class VasyanEnvironmentScanner {
-
-    private static final int SURFACE_RADIUS = 16;
-    private static final int SURFACE_MAX_BLOCKS = 1024;
 
     public record BlockEntry(String blockId, int x, int y, int z) {}
     public record EntityEntry(String type, String name, double distance, String direction) {}
@@ -92,9 +90,11 @@ public final class VasyanEnvironmentScanner {
     }
 
     private static List<BlockEntry> collectSurface(Level level, BlockPos origin) {
+        int radius = VasyanConfig.WORLD_SCAN_RADIUS.get();
+        int maxBlocks = radius * radius * 4;
         List<BlockEntry> entries = new ArrayList<>();
-        for (int dx = -SURFACE_RADIUS; dx <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dx++) {
-            for (int dz = -SURFACE_RADIUS; dz <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dz++) {
+        for (int dx = -radius; dx <= radius && entries.size() < maxBlocks; dx++) {
+            for (int dz = -radius; dz <= radius && entries.size() < maxBlocks; dz++) {
                 BlockPos sample = new BlockPos(origin.getX() + dx, origin.getY(), origin.getZ() + dz);
                 if (!level.hasChunkAt(sample)) {
                     continue;

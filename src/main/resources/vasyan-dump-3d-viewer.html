@@ -109,7 +109,7 @@
       'minecraft:cherry_leaves': 0xFFB7C5,
       'minecraft:azalea_leaves': 0x48B518,
       'minecraft:flowering_azalea_leaves': 0x48B518,
-      'minecraft:water': 0xffffff
+      'minecraft:water': 0x3f76e4
     };
 
     const ALPHA_BLOCKS = new Set([
@@ -170,7 +170,7 @@
         color: baseColor,
         transparent: needsAlpha,
         alphaTest: needsAlpha ? 0.5 : 0,
-        opacity: isWater ? 0.6 : 1.0,
+        opacity: isWater ? 0.85 : 1.0,
         side: needsAlpha ? THREE.DoubleSide : THREE.FrontSide
       });
       textureCache.set(blockId, material);
@@ -227,6 +227,27 @@
       return parseInt(c, 16);
     }
 
+    function makeTextSprite(text) {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.font = 'bold 24px Arial';
+      const width = ctx.measureText(text).width;
+      canvas.width = width + 24;
+      canvas.height = 40;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ffee58';
+      ctx.font = 'bold 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+      sprite.scale.set(canvas.width / 24, canvas.height / 24, 1);
+      return sprite;
+    }
+
     function clearSceneObjects() {
       for (const obj of clickable) scene.remove(obj);
       clickable.length = 0;
@@ -260,16 +281,31 @@
         visibleSet.add(`${b.x},${b.y},${b.z}`);
       }
 
-      // Surface blocks
+      // Surface blocks - instanced by blockId for performance with large radii
+      const surfaceById = new Map();
       for (const b of vision.surfaceBlocks || []) {
         if (visibleSet.has(`${b.x},${b.y},${b.z}`)) {
           continue; // let visible block render with highlight
         }
+        if (!surfaceById.has(b.id)) {
+          surfaceById.set(b.id, []);
+        }
+        surfaceById.get(b.id).push(b);
+      }
+
+      const dummy = new THREE.Object3D();
+      for (const [blockId, blocks] of surfaceById) {
         const geo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
-        const mat = getMaterial(b.id);
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
-        mesh.userData = { tooltip: `${b.id}\n(${b.x}, ${b.y}, ${b.z})` };
+        const mat = getMaterial(blockId);
+        const mesh = new THREE.InstancedMesh(geo, mat, blocks.length);
+        mesh.userData = { blocks };
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          dummy.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
         scene.add(mesh);
         clickable.push(mesh);
       }
@@ -291,6 +327,12 @@
         outline.position.copy(mesh.position);
         scene.add(outline);
         clickable.push(outline);
+
+        // Text label above the block
+        const shortName = b.id.includes(':') ? b.id.split(':').pop() : b.id;
+        const label = makeTextSprite(shortName);
+        label.position.set(b.x + 0.5, b.y + 1.6, b.z + 0.5);
+        scene.add(label);
       }
 
       // Fallback: parse visibleSummary if visibleBlocks is absent (old dumps)
@@ -363,11 +405,24 @@
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
       const hits = raycaster.intersectObjects(clickable, false);
-      if (hits.length > 0 && hits[0].object.userData.tooltip) {
+      let tip = null;
+      if (hits.length > 0) {
+        const hit = hits[0];
+        if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
+          const blocks = hit.object.userData.blocks;
+          const b = blocks && blocks[hit.instanceId];
+          if (b) {
+            tip = `${b.id}\n(${b.x}, ${b.y}, ${b.z})`;
+          }
+        } else if (hit.object.userData.tooltip) {
+          tip = hit.object.userData.tooltip;
+        }
+      }
+      if (tip) {
         tooltip.style.display = 'block';
         tooltip.style.left = (e.clientX + 12) + 'px';
         tooltip.style.top = (e.clientY + 12) + 'px';
-        tooltip.textContent = hits[0].object.userData.tooltip;
+        tooltip.textContent = tip;
       } else {
         tooltip.style.display = 'none';
       }
