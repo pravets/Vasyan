@@ -4,6 +4,7 @@ import ru.pravets.vasyan.action.ActionExecutor;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.llm.PlanRecord;
+import ru.pravets.vasyan.memory.VisionScanner;
 import ru.pravets.vasyan.memory.VasyanMemory;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
