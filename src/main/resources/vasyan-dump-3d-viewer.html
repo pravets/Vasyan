@@ -39,6 +39,7 @@
   </script>
 </head>
 <body>
+  <script id="vasyan-textures">window.VASYAN_TEXTURES = {};</script>
   <script id="vasyan-dump-data">window.VASYAN_DUMP = null;</script>
   <div id="info">
     <strong>Vasyan Dump 3D Viewer</strong><br/>
@@ -133,18 +134,27 @@
       const name = blockId.split(':').pop();
       const isWater = name === 'water';
       const baseColor = isWater ? 0x44aaff : fallbackColor;
-      const material = new THREE.MeshLambertMaterial({
+      const material = new THREE.MeshBasicMaterial({
         color: baseColor,
         transparent: isWater,
         opacity: isWater ? 0.6 : 1.0,
         side: isWater ? THREE.DoubleSide : THREE.FrontSide
       });
       textureCache.set(blockId, material);
-      textureLoader.load(textureUrl(blockId),
-        tex => { material.color.setHex(0xffffff); material.map = tex; material.needsUpdate = true; },
-        undefined,
-        () => { /* fallback color stays */ }
-      );
+      const local = window.VASYAN_TEXTURES && window.VASYAN_TEXTURES[blockId];
+      if (local) {
+        textureLoader.load(local,
+          tex => { material.color.setHex(0xffffff); material.map = tex; material.needsUpdate = true; },
+          undefined,
+          () => { /* fallback color stays */ }
+        );
+      } else {
+        textureLoader.load(textureUrl(blockId),
+          tex => { material.color.setHex(0xffffff); material.map = tex; material.needsUpdate = true; },
+          undefined,
+          () => { /* fallback color stays */ }
+        );
+      }
       return material;
     }
 
@@ -222,8 +232,19 @@
         clickable.push(mesh);
       }
 
-      // Visible blocks
-      if (vision.visibleSummary) {
+      // Visible blocks (actual scanned positions)
+      for (const b of vision.visibleBlocks || []) {
+        const geo = new THREE.BoxGeometry(0.85, 0.85, 0.85);
+        const mat = new THREE.MeshBasicMaterial({ color: 0xffcc00, wireframe: true });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
+        mesh.userData = { tooltip: `${b.id}\n(${b.x}, ${b.y}, ${b.z})` };
+        scene.add(mesh);
+        clickable.push(mesh);
+      }
+
+      // Fallback: parse visibleSummary if visibleBlocks is absent (old dumps)
+      if (!vision.visibleBlocks && vision.visibleSummary) {
         const dirAngles = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
         const entries = vision.visibleSummary.matchAll(/([\w:]+)\s+x(\d+)\s+\((\d+)m\s+([NSEW]+)\)/g);
         for (const m of entries) {
