@@ -59,8 +59,10 @@ class VasyanDumpWriterTest extends AbstractMinecraftTest {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         assertTrue(root.has("meta"));
         assertTrue(root.has("llm"));
-        assertFalse(root.getAsJsonObject("llm").has("prompt"), "Prompt must be omitted without flag");
-        assertTrue(root.getAsJsonObject("llm").has("rawResponse"));
+        JsonObject llm = root.getAsJsonObject("llm");
+        assertFalse(llm.has("systemPrompt"), "systemPrompt must be omitted without flag");
+        assertFalse(llm.has("userPrompt"), "userPrompt must be omitted without flag");
+        assertTrue(llm.has("rawResponse"));
     }
 
     @Test
@@ -103,5 +105,36 @@ class VasyanDumpWriterTest extends AbstractMinecraftTest {
         JsonObject root = JsonParser.parseString(json).getAsJsonObject();
         assertEquals("sys prompt", root.getAsJsonObject("llm").get("systemPrompt").getAsString());
         assertEquals("user prompt", root.getAsJsonObject("llm").get("userPrompt").getAsString());
+    }
+
+    @Test
+    void uniqueFileNamesForRapidDumps() throws IOException {
+        VasyanEntity vasyan = mock(VasyanEntity.class);
+        Level level = mock(Level.class);
+        ActionExecutor executor = mock(ActionExecutor.class);
+        VasyanMemory memory = mock(VasyanMemory.class);
+        VasyanInventory inventory = new VasyanInventory(null, 27);
+
+        when(vasyan.level()).thenReturn(level);
+        when(level.dimension()).thenReturn(Level.OVERWORLD);
+        when(vasyan.getVasyanName()).thenReturn("Bob");
+        when(vasyan.getUUID()).thenReturn(UUID.randomUUID());
+        when(vasyan.blockPosition()).thenReturn(new BlockPos(0, 64, 0));
+        when(vasyan.getXRot()).thenReturn(0f);
+        when(vasyan.getYRot()).thenReturn(0f);
+        when(vasyan.getHealth()).thenReturn(20f);
+        when(vasyan.getActionExecutor()).thenReturn(executor);
+        when(executor.getStateSummary()).thenReturn("idle");
+        when(executor.getLastPlanRecord()).thenReturn(null);
+        when(vasyan.getMemory()).thenReturn(memory);
+        when(memory.getCurrentGoal()).thenReturn("");
+        when(memory.getRecentActions(20)).thenReturn(Collections.emptyList());
+        when(vasyan.getInventory()).thenReturn(inventory);
+
+        Path first = VasyanDumpWriter.write(vasyan, false, tempDir);
+        Path second = VasyanDumpWriter.write(vasyan, false, tempDir);
+
+        assertNotEquals(first, second, "Two dumps in the same second must not overwrite each other");
+        assertTrue(Files.exists(second));
     }
 }

@@ -158,13 +158,13 @@ public final class VasyanEnvironmentScanner {
         return label + " и ещё " + (entries.size() - 1);
     }
 
-    private static String direction(BlockPos from, BlockPos to) {
+    static String direction(BlockPos from, BlockPos to) {
         int dx = to.getX() - from.getX();
         int dz = to.getZ() - from.getZ();
         if (dx == 0 && dz == 0) {
             return "here";
         }
-        double angle = Math.toDegrees(Math.atan2(-dx, dz));
+        double angle = Math.toDegrees(Math.atan2(dx, -dz));
         if (angle < 0) {
             angle += 360;
         }

@@ -69,7 +69,20 @@ public final class ChatCommandParser {
         if (trimmed.isEmpty()) {
             return false;
         }
-        return LOOK_MARKERS.stream().anyMatch(trimmed::startsWith);
+        return LOOK_MARKERS.stream().anyMatch(marker -> matchesPhrase(trimmed, marker));
+    }
+
+    private static boolean matchesPhrase(String trimmed, String marker) {
+        if (!trimmed.startsWith(marker)) {
+            return false;
+        }
+        if (trimmed.length() == marker.length()) {
+            return true;
+        }
+        char next = trimmed.charAt(marker.length());
+        // Word boundary: punctuation or whitespace is fine, but not another
+        // letter/digit (so "look" does not match "lookout" or "look4").
+        return !Character.isLetterOrDigit(next);
     }
 
     /** Whether the command asks for wood/trees in general (any log type). */

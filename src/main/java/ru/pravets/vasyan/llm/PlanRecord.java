@@ -4,6 +4,7 @@ import ru.pravets.vasyan.action.Task;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Snapshot of one LLM planning round: the original command, the prompts sent,
@@ -22,6 +23,10 @@ public record PlanRecord(
     boolean fromCache
 ) {
     public PlanRecord {
-        tasks = tasks != null ? List.copyOf(tasks) : Collections.emptyList();
+        tasks = tasks != null
+            ? tasks.stream()
+                .map(t -> new Task(t.getAction(), Map.copyOf(new java.util.HashMap<>(t.getParameters()))))
+                .toList()
+            : Collections.emptyList();
     }
 }

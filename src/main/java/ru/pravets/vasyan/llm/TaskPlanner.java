@@ -129,19 +129,6 @@ public class TaskPlanner {
                         "ok, " + parsed.getTasks().size() + " tasks, plan=\"" + truncate(parsed.getPlan(), 200)
                             + "\", tasks=" + truncate(describeTasks(parsed.getTasks()), 300));
 
-                    lastPlanRecord = new PlanRecord(
-                        command,
-                        systemPrompt,
-                        userPrompt,
-                        content,
-                        parsed.getReasoning(),
-                        parsed.getPlan(),
-                        parsed.getTasks(),
-                        response.getLatencyMs(),
-                        response.getModel(),
-                        response.isFromCache()
-                    );
-
                     // "Gather until the inventory is full" is deterministic:
                     // mark every gather task with fill=true (the LLM does not
                     // get to decide the quantity for this quantifier).
@@ -211,6 +198,19 @@ public class TaskPlanner {
                             parsed.getTasks().addAll(deduped);
                         }
                     }
+
+                    lastPlanRecord = new PlanRecord(
+                        command,
+                        systemPrompt,
+                        userPrompt,
+                        content,
+                        parsed.getReasoning(),
+                        parsed.getPlan(),
+                        parsed.getTasks(),
+                        response.getLatencyMs(),
+                        response.getModel(),
+                        response.isFromCache()
+                    );
 
                     return parsed;
                 })

@@ -49,10 +49,24 @@ public final class VasyanDumpWriter {
         Files.createDirectories(baseDir);
         String timestamp = LocalDateTime.now().format(FILENAME_TIME);
         String safeName = vasyan.getVasyanName().replaceAll("[/\\\\]", "_");
-        Path file = baseDir.resolve(safeName + "-" + timestamp + ".json");
+        String baseName = safeName + "-" + timestamp;
+        Path file = uniquePath(baseDir, baseName);
         JsonObject dump = buildDump(vasyan, includePrompt);
         Files.writeString(file, GSON.toJson(dump));
         return file;
+    }
+
+    private static Path uniquePath(Path baseDir, String baseName) {
+        Path file = baseDir.resolve(baseName + ".json");
+        if (!Files.exists(file)) {
+            return file;
+        }
+        for (int i = 1; ; i++) {
+            file = baseDir.resolve(baseName + "_" + i + ".json");
+            if (!Files.exists(file)) {
+                return file;
+            }
+        }
     }
 
     private static JsonObject buildDump(VasyanEntity vasyan, boolean includePrompt) {

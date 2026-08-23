@@ -1,5 +1,6 @@
 package ru.pravets.vasyan.debug;
 
+import net.minecraft.core.BlockPos;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -40,5 +41,19 @@ class VasyanEnvironmentScannerTest {
         String description = VasyanEnvironmentScanner.describe(scan);
 
         assertTrue(description.contains("ничего") || description.contains("nothing"));
+    }
+
+    @Test
+    void directionPointsToCardinalAndIntercardinal() {
+        BlockPos origin = new BlockPos(0, 64, 0);
+        assertEquals("N", VasyanEnvironmentScanner.direction(origin, new BlockPos(0, 64, -10)));
+        assertEquals("E", VasyanEnvironmentScanner.direction(origin, new BlockPos(10, 64, 0)));
+        assertEquals("S", VasyanEnvironmentScanner.direction(origin, new BlockPos(0, 64, 10)));
+        assertEquals("W", VasyanEnvironmentScanner.direction(origin, new BlockPos(-10, 64, 0)));
+        assertEquals("NE", VasyanEnvironmentScanner.direction(origin, new BlockPos(10, 64, -10)));
+        assertEquals("SE", VasyanEnvironmentScanner.direction(origin, new BlockPos(10, 64, 10)));
+        assertEquals("SW", VasyanEnvironmentScanner.direction(origin, new BlockPos(-10, 64, 10)));
+        assertEquals("NW", VasyanEnvironmentScanner.direction(origin, new BlockPos(-10, 64, -10)));
+        assertEquals("here", VasyanEnvironmentScanner.direction(origin, origin));
     }
 }
