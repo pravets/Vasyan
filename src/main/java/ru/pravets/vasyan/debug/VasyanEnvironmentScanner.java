@@ -23,7 +23,7 @@ import java.util.List;
 public final class VasyanEnvironmentScanner {
 
     private static final int SURFACE_RADIUS = 16;
-    private static final int SURFACE_MAX_BLOCKS = 256;
+    private static final int SURFACE_MAX_BLOCKS = 1024;
 
     public record BlockEntry(String blockId, int x, int y, int z) {}
     public record EntityEntry(String type, String name, double distance, String direction) {}
@@ -93,20 +93,11 @@ public final class VasyanEnvironmentScanner {
 
     private static List<BlockEntry> collectSurface(Level level, BlockPos origin) {
         List<BlockEntry> entries = new ArrayList<>();
-        int rays = 16;
-        for (int i = 0; i < rays && entries.size() < SURFACE_MAX_BLOCKS; i++) {
-            double angle = i * 2.0 * Math.PI / rays;
-            // N = -Z, E = +X; start at N and sweep clockwise.
-            double dx = Math.sin(angle);
-            double dz = -Math.cos(angle);
-            // Sample at several distances along each ray so the scan covers the
-            // area around the bot, not just the single block at distance 1.
-            for (int dist = 2; dist <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dist += 2) {
-                int x = origin.getX() + (int) Math.round(dx * dist);
-                int z = origin.getZ() + (int) Math.round(dz * dist);
-                BlockPos sample = new BlockPos(x, origin.getY(), z);
+        for (int dx = -SURFACE_RADIUS; dx <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dx++) {
+            for (int dz = -SURFACE_RADIUS; dz <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dz++) {
+                BlockPos sample = new BlockPos(origin.getX() + dx, origin.getY(), origin.getZ() + dz);
                 if (!level.hasChunkAt(sample)) {
-                    break;
+                    continue;
                 }
                 BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING, sample);
                 if (surface == null) {
