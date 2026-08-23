@@ -8,6 +8,7 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.math.Matrix4f;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.core.BlockPos;
@@ -68,8 +69,9 @@ public final class VasyanScanDebugRenderer {
         builder.begin(VertexFormat.Mode.DEBUG_LINES, DefaultVertexFormat.POSITION_COLOR);
 
         PoseStack.Pose pose = poseStack.last();
-        drawBlocks(pose, builder, scan.surfaceBlocks(), 0.0f, 0.8f, 0.2f);   // green
-        drawBlocks(pose, builder, scan.visibleBlocks(), 1.0f, 0.9f, 0.0f);  // yellow
+        var matrix = pose.pose();
+        drawBlocks(matrix, builder, scan.surfaceBlocks(), 0.0f, 0.8f, 0.2f);   // green
+        drawBlocks(matrix, builder, scan.visibleBlocks(), 1.0f, 0.9f, 0.0f);  // yellow
 
         tesselator.end();
 
@@ -78,42 +80,42 @@ public final class VasyanScanDebugRenderer {
         poseStack.popPose();
     }
 
-    private static void drawBlocks(PoseStack.Pose pose, BufferBuilder builder,
+    private static void drawBlocks(Matrix4f matrix, BufferBuilder builder,
                                    List<BlockPos> blocks, float r, float g, float b) {
         for (BlockPos pos : blocks) {
-            drawBox(pose, builder,
+            drawBox(matrix, builder,
                 pos.getX(), pos.getY(), pos.getZ(),
                 pos.getX() + 1.0f, pos.getY() + 1.0f, pos.getZ() + 1.0f,
                 r, g, b);
         }
     }
 
-    private static void drawBox(PoseStack.Pose pose, BufferBuilder builder,
+    private static void drawBox(Matrix4f matrix, BufferBuilder builder,
                                 float x1, float y1, float z1,
                                 float x2, float y2, float z2,
                                 float r, float g, float b) {
         // 12 edges of a 1x1x1 block
-        addLine(pose, builder, x1, y1, z1, x2, y1, z1, r, g, b);
-        addLine(pose, builder, x2, y1, z1, x2, y2, z1, r, g, b);
-        addLine(pose, builder, x2, y2, z1, x1, y2, z1, r, g, b);
-        addLine(pose, builder, x1, y2, z1, x1, y1, z1, r, g, b);
+        addLine(matrix, builder, x1, y1, z1, x2, y1, z1, r, g, b);
+        addLine(matrix, builder, x2, y1, z1, x2, y2, z1, r, g, b);
+        addLine(matrix, builder, x2, y2, z1, x1, y2, z1, r, g, b);
+        addLine(matrix, builder, x1, y2, z1, x1, y1, z1, r, g, b);
 
-        addLine(pose, builder, x1, y1, z2, x2, y1, z2, r, g, b);
-        addLine(pose, builder, x2, y1, z2, x2, y2, z2, r, g, b);
-        addLine(pose, builder, x2, y2, z2, x1, y2, z2, r, g, b);
-        addLine(pose, builder, x1, y2, z2, x1, y1, z2, r, g, b);
+        addLine(matrix, builder, x1, y1, z2, x2, y1, z2, r, g, b);
+        addLine(matrix, builder, x2, y1, z2, x2, y2, z2, r, g, b);
+        addLine(matrix, builder, x2, y2, z2, x1, y2, z2, r, g, b);
+        addLine(matrix, builder, x1, y2, z2, x1, y1, z2, r, g, b);
 
-        addLine(pose, builder, x1, y1, z1, x1, y1, z2, r, g, b);
-        addLine(pose, builder, x2, y1, z1, x2, y1, z2, r, g, b);
-        addLine(pose, builder, x2, y2, z1, x2, y2, z2, r, g, b);
-        addLine(pose, builder, x1, y2, z1, x1, y2, z2, r, g, b);
+        addLine(matrix, builder, x1, y1, z1, x1, y1, z2, r, g, b);
+        addLine(matrix, builder, x2, y1, z1, x2, y1, z2, r, g, b);
+        addLine(matrix, builder, x2, y2, z1, x2, y2, z2, r, g, b);
+        addLine(matrix, builder, x1, y2, z1, x1, y2, z2, r, g, b);
     }
 
-    private static void addLine(PoseStack.Pose pose, BufferBuilder builder,
+    private static void addLine(Matrix4f matrix, BufferBuilder builder,
                                float x1, float y1, float z1,
                                float x2, float y2, float z2,
                                float r, float g, float b) {
-        builder.vertex(pose, x1, y1, z1).color(r, g, b, 1.0f).endVertex();
-        builder.vertex(pose, x2, y2, z2).color(r, g, b, 1.0f).endVertex();
+        builder.vertex(matrix, x1, y1, z1).color(r, g, b, 1.0f).endVertex();
+        builder.vertex(matrix, x2, y2, z2).color(r, g, b, 1.0f).endVertex();
     }
 }

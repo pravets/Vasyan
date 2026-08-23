@@ -124,9 +124,13 @@ public final class VasyanCommandDispatcher {
             for (List<BlockPos> positions : VisionScanner.getVisibleBlocks(vasyan).values()) {
                 visible.addAll(positions);
             }
+            List<BlockPos> surfacePositions = new ArrayList<>();
+            for (VasyanEnvironmentScanner.BlockEntry entry : scan.surfaceBlocks()) {
+                surfacePositions.add(new BlockPos(entry.x(), entry.y(), entry.z()));
+            }
             VasyanNetworking.CHANNEL.send(
                 PacketDistributor.TRACKING_ENTITY.with(() -> vasyan),
-                new ClientboundScanDebugPacket(vasyan.blockPosition(), scan.surfaceBlocks(), visible));
+                new ClientboundScanDebugPacket(vasyan.blockPosition(), surfacePositions, visible));
             return;
         }
 
