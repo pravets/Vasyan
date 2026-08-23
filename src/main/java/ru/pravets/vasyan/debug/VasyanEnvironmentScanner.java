@@ -99,7 +99,9 @@ public final class VasyanEnvironmentScanner {
             // N = -Z, E = +X; start at N and sweep clockwise.
             double dx = Math.sin(angle);
             double dz = -Math.cos(angle);
-            for (int dist = 1; dist <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dist++) {
+            // Sample at several distances along each ray so the scan covers the
+            // area around the bot, not just the single block at distance 1.
+            for (int dist = 2; dist <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dist += 2) {
                 int x = origin.getX() + (int) Math.round(dx * dist);
                 int z = origin.getZ() + (int) Math.round(dz * dist);
                 BlockPos sample = new BlockPos(x, origin.getY(), z);
@@ -122,7 +124,6 @@ public final class VasyanEnvironmentScanner {
                 ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
                 String blockId = id != null ? id.toString() : state.getBlock().toString();
                 entries.add(new BlockEntry(blockId, solidSurface.getX(), solidSurface.getY(), solidSurface.getZ()));
-                break; // first solid surface in this direction
             }
         }
         return entries;
