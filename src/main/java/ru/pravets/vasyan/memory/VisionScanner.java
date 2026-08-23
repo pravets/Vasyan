@@ -87,6 +87,9 @@ public final class VisionScanner {
         INTERESTING.add(Blocks.NETHER_QUARTZ_ORE);
         INTERESTING.add(Blocks.ANCIENT_DEBRIS);
 
+        // Plants (surface)
+        INTERESTING.add(Blocks.SUGAR_CANE);
+
         // Storage
         INTERESTING.add(Blocks.CHEST);
         INTERESTING.add(Blocks.TRAPPED_CHEST);
