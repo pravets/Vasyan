@@ -90,6 +90,35 @@
 
     const TEXTURE_BASE = 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20.1/assets/minecraft/textures/block/';
 
+    const BLOCK_TINTS = {
+      'minecraft:grass_block': 0x5a8c38,
+      'minecraft:grass': 0x5a8c38,
+      'minecraft:tall_grass': 0x5a8c38,
+      'minecraft:fern': 0x5a8c38,
+      'minecraft:sugar_cane': 0x6fae4b,
+      'minecraft:vines': 0x5a8c38,
+      'minecraft:oak_leaves': 0x3d8c28,
+      'minecraft:birch_leaves': 0x578f3f,
+      'minecraft:spruce_leaves': 0x2d5a1e,
+      'minecraft:jungle_leaves': 0x30bb0b,
+      'minecraft:acacia_leaves': 0x5a8c38,
+      'minecraft:dark_oak_leaves': 0x3d8c28,
+      'minecraft:mangrove_leaves': 0x5a8c38,
+      'minecraft:cherry_leaves': 0xffb7c5,
+      'minecraft:azalea_leaves': 0x5a8c38,
+      'minecraft:flowering_azalea_leaves': 0x5a8c38,
+      'minecraft:water': 0xffffff
+    };
+
+    const ALPHA_BLOCKS = new Set([
+      'minecraft:oak_leaves', 'minecraft:birch_leaves', 'minecraft:spruce_leaves',
+      'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
+      'minecraft:mangrove_leaves', 'minecraft:cherry_leaves',
+      'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
+      'minecraft:grass', 'minecraft:tall_grass', 'minecraft:fern',
+      'minecraft:sugar_cane', 'minecraft:vines'
+    ]);
+
     function textureUrl(blockId) {
       const name = blockId.split(':').pop();
       const map = {
@@ -133,12 +162,14 @@
       const fallbackColor = hashColor(blockId);
       const name = blockId.split(':').pop();
       const isWater = name === 'water';
-      const baseColor = isWater ? 0x44aaff : fallbackColor;
+      const needsAlpha = isWater || ALPHA_BLOCKS.has(blockId);
+      const baseColor = BLOCK_TINTS[blockId] || fallbackColor;
       const material = new THREE.MeshBasicMaterial({
         color: baseColor,
-        transparent: isWater,
+        transparent: needsAlpha,
+        alphaTest: needsAlpha ? 0.5 : 0,
         opacity: isWater ? 0.6 : 1.0,
-        side: isWater ? THREE.DoubleSide : THREE.FrontSide
+        side: needsAlpha ? THREE.DoubleSide : THREE.FrontSide
       });
       textureCache.set(blockId, material);
       const local = window.VASYAN_TEXTURES && window.VASYAN_TEXTURES[blockId];
@@ -148,7 +179,7 @@
           tex.colorSpace = THREE.SRGBColorSpace;
           tex.magFilter = THREE.NearestFilter;
           tex.minFilter = THREE.NearestFilter;
-          material.color.setHex(0xffffff);
+          material.color.setHex(BLOCK_TINTS[blockId] || 0xffffff);
           material.map = tex;
           material.needsUpdate = true;
         },
