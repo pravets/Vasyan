@@ -102,6 +102,7 @@ class ChatCommandParserTest {
     void lookCommands() {
         assertTrue(ChatCommandParser.isLookCommand(normalize("что ты видишь")));
         assertTrue(ChatCommandParser.isLookCommand(normalize("что видишь")));
+        assertTrue(ChatCommandParser.isLookCommand(normalize("что видишь?")));
         assertTrue(ChatCommandParser.isLookCommand(normalize("what do you see")));
         assertTrue(ChatCommandParser.isLookCommand(normalize("look around")));
         assertTrue(ChatCommandParser.isLookCommand(normalize("look")));

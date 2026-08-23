@@ -108,10 +108,13 @@ public final class VasyanEnvironmentScanner {
                 if (surface == null) {
                     continue;
                 }
-                BlockState state = level.getBlockState(surface);
+                // MOTION_BLOCKING returns the lowest air block above the ground,
+                // so the actual surface block is one below that position.
+                BlockPos solidSurface = surface.getY() > level.getMinBuildHeight() ? surface.below() : surface;
+                BlockState state = level.getBlockState(solidSurface);
                 ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
                 String blockId = id != null ? id.toString() : state.getBlock().toString();
-                entries.add(new BlockEntry(blockId, surface.getX(), surface.getY(), surface.getZ()));
+                entries.add(new BlockEntry(blockId, solidSurface.getX(), solidSurface.getY(), solidSurface.getZ()));
             }
         }
         return entries;

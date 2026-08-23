@@ -97,7 +97,8 @@ public final class VasyanCommandDispatcher {
      */
     private static void deliver(VasyanEntity vasyan, String command, CommandSourceStack source) {
         String lower = ChatCommandParser.normalize(command);
-        if (ChatCommandParser.isStayCommand(lower)) {
+        String lowerWithoutName = withoutFirstWord(lower);
+        if (ChatCommandParser.isStayCommand(lower) || ChatCommandParser.isStayCommand(lowerWithoutName)) {
             ActionExecutor executor = vasyan.getActionExecutor();
             executor.stopCurrentAction();
             executor.setStaying(true);
@@ -107,7 +108,7 @@ public final class VasyanCommandDispatcher {
             return;
         }
 
-        if (ChatCommandParser.isLookCommand(lower)) {
+        if (ChatCommandParser.isLookCommand(lower) || ChatCommandParser.isLookCommand(lowerWithoutName)) {
             String description = VasyanEnvironmentScanner.describe(VasyanEnvironmentScanner.scan(vasyan));
             vasyan.sendChatMessage(description);
             source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " looks around"), false);
@@ -140,5 +141,16 @@ public final class VasyanCommandDispatcher {
             }
         }
         return nearest;
+    }
+
+    private static String withoutFirstWord(String lowerCommand) {
+        if (lowerCommand == null) {
+            return null;
+        }
+        int firstSpace = lowerCommand.indexOf(' ');
+        if (firstSpace < 0) {
+            return "";
+        }
+        return lowerCommand.substring(firstSpace + 1).trim();
     }
 }
