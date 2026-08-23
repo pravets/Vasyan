@@ -208,9 +208,13 @@ public class VasyanInventory implements Container {
 
     public void saveToNBT(CompoundTag tag) {
         ListTag list = new ListTag();
-        for (ItemStack slot : slots) {
+        for (int i = 0; i < slots.length; i++) {
+            ItemStack slot = slots[i];
             if (!slot.isEmpty()) {
-                list.add(slot.save(new CompoundTag()));
+                CompoundTag slotTag = new CompoundTag();
+                slotTag.putInt("Slot", i);
+                slot.save(slotTag);
+                list.add(slotTag);
             }
         }
         tag.put(NBT_KEY, list);
@@ -219,11 +223,21 @@ public class VasyanInventory implements Container {
     public void loadFromNBT(CompoundTag tag) {
         Arrays.fill(slots, ItemStack.EMPTY);
         ListTag list = tag.getList(NBT_KEY, Tag.TAG_COMPOUND);
-        int slotIndex = 0;
-        for (int i = 0; i < list.size() && slotIndex < maxSize; i++) {
-            ItemStack stack = ItemStack.of(list.getCompound(i));
-            if (!stack.isEmpty()) {
-                slots[slotIndex++] = stack;
+        int fallbackIndex = 0;
+        for (int i = 0; i < list.size() && fallbackIndex < maxSize; i++) {
+            CompoundTag slotTag = list.getCompound(i);
+            ItemStack stack = ItemStack.of(slotTag);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            if (slotTag.contains("Slot")) {
+                int slotIndex = slotTag.getInt("Slot");
+                if (slotIndex >= 0 && slotIndex < maxSize) {
+                    slots[slotIndex] = stack;
+                }
+            } else {
+                // Legacy compact format: items are stored in order.
+                slots[fallbackIndex++] = stack;
             }
         }
     }

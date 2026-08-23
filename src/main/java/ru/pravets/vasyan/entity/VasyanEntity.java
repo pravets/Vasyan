@@ -283,8 +283,23 @@ public class VasyanEntity extends PathfinderMob {
     @Override
     public void addAdditionalSaveData(CompoundTag tag) {
         super.addAdditionalSaveData(tag);
+        writeVasyanSaveData(tag);
+    }
+
+    @Override
+    public void readAdditionalSaveData(CompoundTag tag) {
+        super.readAdditionalSaveData(tag);
+        this.loadedFromNbt = true;
+        readVasyanSaveData(tag);
+    }
+
+    /**
+     * Writes Vasyan-specific data to the given NBT tag. Extracted so unit
+     * tests can verify the round-trip without needing a running game server.
+     */
+    void writeVasyanSaveData(CompoundTag tag) {
         tag.putString("VasyanName", this.vasyanName);
-        
+
         CompoundTag memoryTag = new CompoundTag();
         this.memory.saveToNBT(memoryTag);
         tag.put("Memory", memoryTag);
@@ -296,14 +311,15 @@ public class VasyanEntity extends PathfinderMob {
         tag.putBoolean("Staying", this.actionExecutor.isStaying());
     }
 
-    @Override
-    public void readAdditionalSaveData(CompoundTag tag) {
-        super.readAdditionalSaveData(tag);
-        this.loadedFromNbt = true;
+    /**
+     * Reads Vasyan-specific data from the given NBT tag. Extracted so unit
+     * tests can verify the round-trip without needing a running game server.
+     */
+    void readVasyanSaveData(CompoundTag tag) {
         if (tag.contains("VasyanName")) {
             this.setVasyanName(tag.getString("VasyanName"));
         }
-        
+
         if (tag.contains("Memory")) {
             this.memory.loadFromNBT(tag.getCompound("Memory"));
         }

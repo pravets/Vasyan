@@ -137,6 +137,25 @@ class VasyanInventoryTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void nbtRoundTripPreservesSlots() {
+        VasyanInventory inventory = new VasyanInventory(9);
+        inventory.setItem(0, new ItemStack(Items.OAK_LOG, 10));
+        inventory.setItem(4, new ItemStack(Items.STONE_AXE));
+
+        CompoundTag tag = new CompoundTag();
+        inventory.saveToNBT(tag);
+
+        VasyanInventory loaded = new VasyanInventory(9);
+        loaded.loadFromNBT(tag);
+
+        assertTrue(loaded.getItem(0).is(Items.OAK_LOG));
+        assertEquals(10, loaded.getItem(0).getCount());
+        assertTrue(loaded.getItem(4).is(Items.STONE_AXE));
+        assertTrue(loaded.getItem(1).isEmpty());
+        assertTrue(loaded.getItem(8).isEmpty());
+    }
+
+    @Test
     void nbtRoundTripPreservesContents() {
         VasyanInventory inventory = new VasyanInventory(9);
         inventory.addItem(new ItemStack(Items.OAK_LOG, 10));
