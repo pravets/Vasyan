@@ -93,28 +93,36 @@ public final class VasyanEnvironmentScanner {
 
     private static List<BlockEntry> collectSurface(Level level, BlockPos origin) {
         List<BlockEntry> entries = new ArrayList<>();
-        BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
-        for (int dx = -SURFACE_RADIUS;
-             dx <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS;
-             dx += 2) {
-            for (int dz = -SURFACE_RADIUS;
-                 dz <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS;
-                 dz += 2) {
-                mutable.set(origin.getX() + dx, origin.getY(), origin.getZ() + dz);
-                if (!level.hasChunkAt(mutable)) {
-                    continue;
+        int rays = 16;
+        for (int i = 0; i < rays && entries.size() < SURFACE_MAX_BLOCKS; i++) {
+            double angle = i * 2.0 * Math.PI / rays;
+            // N = -Z, E = +X; start at N and sweep clockwise.
+            double dx = Math.sin(angle);
+            double dz = -Math.cos(angle);
+            for (int dist = 1; dist <= SURFACE_RADIUS && entries.size() < SURFACE_MAX_BLOCKS; dist++) {
+                int x = origin.getX() + (int) Math.round(dx * dist);
+                int z = origin.getZ() + (int) Math.round(dz * dist);
+                BlockPos sample = new BlockPos(x, origin.getY(), z);
+                if (!level.hasChunkAt(sample)) {
+                    break;
                 }
-                BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING, mutable);
+                BlockPos surface = level.getHeightmapPos(Heightmap.Types.MOTION_BLOCKING, sample);
                 if (surface == null) {
                     continue;
                 }
                 // MOTION_BLOCKING returns the lowest air block above the ground,
                 // so the actual surface block is one below that position.
-                BlockPos solidSurface = surface.getY() > level.getMinBuildHeight() ? surface.below() : surface;
+                BlockPos solidSurface = surface.getY() > level.getMinBuildHeight()
+                    ? surface.below()
+                    : surface;
                 BlockState state = level.getBlockState(solidSurface);
+                if (state.isAir()) {
+                    continue;
+                }
                 ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
                 String blockId = id != null ? id.toString() : state.getBlock().toString();
                 entries.add(new BlockEntry(blockId, solidSurface.getX(), solidSurface.getY(), solidSurface.getZ()));
+                break; // first solid surface in this direction
             }
         }
         return entries;
@@ -137,7 +145,7 @@ public final class VasyanEnvironmentScanner {
     }
 
     private static String shortBlockList(List<BlockEntry> entries) {
-        // Use the most common surface block names, deduplicated, limited to 4.
+        // Deduplicated surface block names from the 360° radial scan, limited to 4.
         return entries.stream()
             .map(BlockEntry::blockId)
             .map(id -> id.contains(":") ? id.substring(id.indexOf(':') + 1) : id)
