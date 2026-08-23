@@ -79,9 +79,14 @@ public final class ChatCommandParser {
         if (trimmed.length() == marker.length()) {
             return true;
         }
+        // Single-word markers such as "look" must match exactly; otherwise
+        // "look for diamonds" would be misclassified as a look command.
+        if (!marker.contains(" ")) {
+            return false;
+        }
         char next = trimmed.charAt(marker.length());
         // Word boundary: punctuation or whitespace is fine, but not another
-        // letter/digit (so "look" does not match "lookout" or "look4").
+        // letter/digit (so "look around" matches but "lookout" does not).
         return !Character.isLetterOrDigit(next);
     }
 
