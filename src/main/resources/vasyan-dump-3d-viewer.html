@@ -109,6 +109,9 @@
       'minecraft:cherry_leaves': 0xFFB7C5,
       'minecraft:azalea_leaves': 0x48B518,
       'minecraft:flowering_azalea_leaves': 0x48B518,
+      'minecraft:seagrass': 0x3d8c28,
+      'minecraft:tall_seagrass': 0x3d8c28,
+      'minecraft:kelp': 0x3d8c28,
       'minecraft:water': 0x3f76e4
     };
 
@@ -118,7 +121,8 @@
       'minecraft:mangrove_leaves', 'minecraft:cherry_leaves',
       'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
       'minecraft:grass', 'minecraft:tall_grass', 'minecraft:fern',
-      'minecraft:sugar_cane', 'minecraft:vines'
+      'minecraft:sugar_cane', 'minecraft:vines',
+      'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp'
     ]);
 
     function textureUrl(blockId) {
@@ -135,6 +139,9 @@
         'spruce_leaves': 'spruce_leaves',
         'birch_leaves': 'birch_leaves',
         'sugar_cane': 'sugar_cane',
+        'seagrass': 'seagrass',
+        'tall_seagrass': 'tall_seagrass_top',
+        'kelp': 'kelp_top',
         'tall_grass': 'tall_grass',
         'grass': 'grass',
         'water': 'water_still',
@@ -227,27 +234,6 @@
       return parseInt(c, 16);
     }
 
-    function makeTextSprite(text) {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      ctx.font = 'bold 24px Arial';
-      const width = ctx.measureText(text).width;
-      canvas.width = width + 24;
-      canvas.height = 40;
-      ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = '#ffee58';
-      ctx.font = 'bold 24px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.colorSpace = THREE.SRGBColorSpace;
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
-      sprite.scale.set(canvas.width / 24, canvas.height / 24, 1);
-      return sprite;
-    }
-
     function clearSceneObjects() {
       for (const obj of clickable) scene.remove(obj);
       clickable.length = 0;
@@ -327,12 +313,6 @@
         outline.position.copy(mesh.position);
         scene.add(outline);
         clickable.push(outline);
-
-        // Text label above the block
-        const shortName = b.id.includes(':') ? b.id.split(':').pop() : b.id;
-        const label = makeTextSprite(shortName);
-        label.position.set(b.x + 0.5, b.y + 1.6, b.z + 0.5);
-        scene.add(label);
       }
 
       // Fallback: parse visibleSummary if visibleBlocks is absent (old dumps)
