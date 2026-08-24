@@ -88,27 +88,30 @@ class ResilientLLMClientAsyncRetryTest {
     }
 
     @Test
-    void nonRetryableErrorIsNotRetried() {
+    void nonRetryableErrorIsNotRetried() throws Exception {
         FlakyAsyncClient delegate = new FlakyAsyncClient(99,
             new IllegalArgumentException("bad request, retrying is pointless"));
 
-        CompletableFuture<LLMResponse> future =
-            client(delegate).sendAsync("hello", Map.of());
+        // Fallback turns any failure into a successful response, so the
+        // contract is: single attempt, then a fallback answer.
+        LLMResponse response = client(delegate).sendAsync("hello", Map.of()).get();
 
-        assertThrows(Exception.class, () -> future.get());
+        assertTrue(response.getContent().contains("[Fallback]"),
+            "Non-retryable failure must end in fallback");
         assertEquals(1, delegate.attempts.get(),
             "Non-retryable error must fail fast without further attempts");
     }
 
     @Test
-    void exhaustedRetriesSurfaceOriginalFailure() {
+    void exhaustedRetriesStopAtMaxAttempts() throws Exception {
         FlakyAsyncClient delegate = new FlakyAsyncClient(Integer.MAX_VALUE,
             new IOException("always down"));
 
-        CompletableFuture<LLMResponse> future =
-            client(delegate).sendAsync("hello", Map.of());
+        LLMResponse response = client(delegate).sendAsync("hello", Map.of()).get();
 
-        assertTrue(future.isCompletedExceptionally() || !future.isDone(),
-            "Future must eventually complete exceptionally");
+        assertTrue(response.getContent().contains("[Fallback]"),
+            "Exhausted retries must end in fallback");
+        assertEquals(ResilienceConfig.getRetryMaxAttempts(), delegate.attempts.get(),
+            "Exactly maxAttempts tries, no more");
     }
 }
