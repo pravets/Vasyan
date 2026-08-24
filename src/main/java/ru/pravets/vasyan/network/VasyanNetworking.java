@@ -20,7 +20,7 @@ import java.util.function.Supplier;
  */
 public final class VasyanNetworking {
 
-    private static final String PROTOCOL_VERSION = "1";
+    private static final String PROTOCOL_VERSION = "2";
 
     public static final SimpleChannel CHANNEL = NetworkRegistry.newSimpleChannel(
         new ResourceLocation(VasyanMod.MODID, "main"),

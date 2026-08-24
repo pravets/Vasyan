@@ -18,6 +18,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -63,15 +64,19 @@ public final class VasyanDumpWriter {
         return file;
     }
 
-    private static Path uniquePath(Path baseDir, String baseName) {
+    private static Path uniquePath(Path baseDir, String baseName) throws IOException {
         Path file = baseDir.resolve(baseName + ".json");
-        if (!Files.exists(file)) {
-            return file;
+        try {
+            return Files.createFile(file);
+        } catch (FileAlreadyExistsException ignored) {
+            // fall through
         }
         for (int i = 1; ; i++) {
             file = baseDir.resolve(baseName + "_" + i + ".json");
-            if (!Files.exists(file)) {
-                return file;
+            try {
+                return Files.createFile(file);
+            } catch (FileAlreadyExistsException ignored) {
+                // try next suffix
             }
         }
     }
@@ -233,7 +238,13 @@ public final class VasyanDumpWriter {
         String html = template
             .replace("window.VASYAN_TEXTURES = {};", textures)
             .replace("window.VASYAN_DUMP = null;", "window.VASYAN_DUMP = " + json + ";");
-        Path htmlFile = jsonFile.resolveSibling(jsonFile.getFileName().toString().replace(".json", ".html"));
+        String fileName = jsonFile.getFileName().toString();
+        if (fileName.endsWith(".json")) {
+            fileName = fileName.substring(0, fileName.length() - ".json".length()) + ".html";
+        } else {
+            fileName = fileName + ".html";
+        }
+        Path htmlFile = jsonFile.resolveSibling(fileName);
         Files.writeString(htmlFile, html);
     }
 
@@ -294,8 +305,10 @@ public final class VasyanDumpWriter {
             case "grass_block" -> "grass_block_top";
             case "dirt_path" -> "dirt_path_top";
             case "water" -> "water_still";
-            case "oak_log", "spruce_log", "birch_log", "jungle_log", "acacia_log", "dark_oak_log", "mangrove_log", "cherry_log" -> name;
-            case "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves", "acacia_leaves", "dark_oak_leaves", "mangrove_leaves", "cherry_leaves" -> name;
+            case "oak_log", "spruce_log", "birch_log", "jungle_log",
+                 "acacia_log", "dark_oak_log", "mangrove_log", "cherry_log" -> name;
+            case "oak_leaves", "spruce_leaves", "birch_leaves", "jungle_leaves",
+                 "acacia_leaves", "dark_oak_leaves", "mangrove_leaves", "cherry_leaves" -> name;
             case "sugar_cane" -> "sugar_cane";
             case "tall_grass" -> "tall_grass_top";
             case "grass" -> "grass_block_top";

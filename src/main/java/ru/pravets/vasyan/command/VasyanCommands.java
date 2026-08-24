@@ -53,6 +53,7 @@ public class VasyanCommands {
                 .then(Commands.argument("name", VasyanNameArgumentType.vasyanName())
                     .executes(VasyanCommands::showInventory)))
             .then(Commands.literal("dump")
+                .requires(source -> source.hasPermission(2))
                 .then(Commands.argument("name", VasyanNameArgumentType.vasyanName())
                     .executes(ctx -> dumpVasyan(ctx, false))
                     .then(Commands.literal("with-prompt")
@@ -377,8 +378,8 @@ public class VasyanCommands {
             return 0;
         }
 
-        VasyanCommandDispatcher.triggerLookDebug(vasyan);
         VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+        VasyanCommandDispatcher.triggerLookDebug(vasyan, scan);
         String description = VasyanEnvironmentScanner.describe(scan);
         vasyan.sendChatMessage(description);
         source.sendSuccess(() -> Component.literal("§7" + name + " looks around"), false);

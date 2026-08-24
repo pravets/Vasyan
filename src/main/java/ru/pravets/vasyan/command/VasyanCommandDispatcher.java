@@ -115,8 +115,9 @@ public final class VasyanCommandDispatcher {
         }
 
         if (ChatCommandParser.isLookCommand(lower) || ChatCommandParser.isLookCommand(lowerWithoutName)) {
-            triggerLookDebug(vasyan);
-            vasyan.sendChatMessage(VasyanEnvironmentScanner.describe(VasyanEnvironmentScanner.scan(vasyan)));
+            VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+            triggerLookDebug(vasyan, scan);
+            vasyan.sendChatMessage(VasyanEnvironmentScanner.describe(scan));
             source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " looks around"), false);
             return;
         }
@@ -133,9 +134,10 @@ public final class VasyanCommandDispatcher {
     /**
      * Sends a debug overlay packet to every player tracking the Vasyan.
      * Used by the deterministic look handler and by {@code /vasyan look}.
+     *
+     * @param scan the already-created surface scan (avoids a duplicate scan)
      */
-    public static void triggerLookDebug(VasyanEntity vasyan) {
-        VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+    public static void triggerLookDebug(VasyanEntity vasyan, VasyanEnvironmentScanner.SurfaceScan scan) {
         List<BlockPos> visible = new ArrayList<>();
         for (List<BlockPos> positions : VisionScanner.getVisibleBlocks(vasyan).values()) {
             visible.addAll(positions);

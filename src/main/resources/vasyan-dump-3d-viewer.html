@@ -86,6 +86,7 @@
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const clickable = [];
+    const sceneObjects = [];
     const textureLoader = new THREE.TextureLoader();
     const textureCache = new Map();
 
@@ -235,7 +236,8 @@
     }
 
     function clearSceneObjects() {
-      for (const obj of clickable) scene.remove(obj);
+      for (const obj of sceneObjects) scene.remove(obj);
+      sceneObjects.length = 0;
       clickable.length = 0;
     }
 
@@ -261,6 +263,7 @@
       bot.userData = { tooltip: `Vasyan ${data.meta && data.meta.name || ''} (${botX}, ${botY}, ${botZ})` };
       scene.add(bot);
       clickable.push(bot);
+      sceneObjects.push(bot);
 
       // Build set of visible block positions to avoid hiding them inside surface blocks
       const visibleSet = new Set();
@@ -295,6 +298,7 @@
         mesh.instanceMatrix.needsUpdate = true;
         scene.add(mesh);
         clickable.push(mesh);
+        sceneObjects.push(mesh);
       }
 
       // Visible blocks (actual scanned positions)
@@ -306,6 +310,7 @@
         mesh.userData = { tooltip: `${b.id}\n(${b.x}, ${b.y}, ${b.z})` };
         scene.add(mesh);
         clickable.push(mesh);
+        sceneObjects.push(mesh);
 
         // Highlight outline (not clickable so tooltip shows on inner block)
         const outlineGeo = new THREE.BoxGeometry(1.05, 1.05, 1.05);
@@ -313,6 +318,7 @@
         const outline = new THREE.Mesh(outlineGeo, outlineMat);
         outline.position.copy(mesh.position);
         scene.add(outline);
+        sceneObjects.push(outline);
       }
 
       // Fallback: parse visibleSummary if visibleBlocks is absent (old dumps)
@@ -331,6 +337,7 @@
           mesh.userData = { tooltip: `${id} x${count}\n~${dist}m ${dir}` };
           scene.add(mesh);
           clickable.push(mesh);
+          sceneObjects.push(mesh);
         }
       }
 
@@ -341,6 +348,7 @@
       plane.rotation.x = -Math.PI / 2;
       plane.position.set(botX, botY - 8, botZ);
       scene.add(plane);
+      sceneObjects.push(plane);
     }
 
     async function fetchDump(url) {
