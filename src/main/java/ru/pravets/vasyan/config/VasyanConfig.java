@@ -121,6 +121,9 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_SEARCH_TIMEOUT;
     public static final ForgeConfigSpec.IntValue GATHER_RING_SPACING;
     public static final ForgeConfigSpec.IntValue GATHER_STATIONS_PER_RING;
+    public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
+    public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
+    public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
     public static final ForgeConfigSpec.IntValue ACTION_TICK_DELAY;
     public static final ForgeConfigSpec.BooleanValue ENABLE_CHAT_RESPONSES;
     public static final ForgeConfigSpec.IntValue MAX_ACTIVE_VASYANS;
@@ -256,6 +259,26 @@ public class VasyanConfig {
         GATHER_STATIONS_PER_RING = builder
             .comment("Look-out stations per ring")
             .defineInRange("stationsPerRing", 8, 4, 16);
+
+        builder.pop();
+
+        builder.comment("Vasyan Navigation (pathfinding) Configuration",
+            "Budgets applied to every pathfinding attempt so a stuck bot cannot burn ticks forever.",
+            "thinkTimeoutMs caps the whole attempt, tickTimeoutMs caps each per-tick pathfinding slice,",
+            "searchRadius limits how far around the bot a route may be searched.")
+            .push("navigation");
+
+        NAV_THINK_TIMEOUT_MS = builder
+            .comment("Total time budget in milliseconds for one pathfinding attempt")
+            .defineInRange("thinkTimeoutMs", 2000, 250, 30000);
+
+        NAV_TICK_TIMEOUT_MS = builder
+            .comment("Per-tick slice in milliseconds the pathfinder may run before yielding")
+            .defineInRange("tickTimeoutMs", 10, 1, 50);
+
+        NAV_SEARCH_RADIUS = builder
+            .comment("Maximum distance in blocks to search for a route")
+            .defineInRange("searchRadius", 64, 16, 256);
 
         builder.pop();
 
