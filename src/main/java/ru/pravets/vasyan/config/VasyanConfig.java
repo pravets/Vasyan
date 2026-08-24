@@ -37,8 +37,8 @@ public class VasyanConfig {
 
         builder.comment("LLM provider configuration. All providers use the OpenAI-compatible Chat Completions API.",
             "provider: openai | groq | gemini | ollama | lmstudio | opencode-go | custom",
-            "  ollama     -> http://localhost:11434/v1 (no key needed)",
-            "  lmstudio   -> http://localhost:1234/v1 (no key needed)",
+            "  ollama     -> http://127.0.0.1:11434/v1 (no key needed)",
+            "  lmstudio   -> http://127.0.0.1:1234/v1 (no key needed)",
             "  opencode-go-> https://opencode.ai/zen/go/v1 (key from OpenCode Zen, models like deepseek-v4-flash)",
             "  custom     -> any OpenAI-compatible endpoint, baseUrl is required")
             .push("llm");
@@ -48,7 +48,7 @@ public class VasyanConfig {
             .define("provider", "ollama");
 
         LLM_BASE_URL = builder
-            .comment("Base URL override. Empty = preset default (e.g. http://localhost:11434/v1 for ollama).",
+            .comment("Base URL override. Empty = preset default (e.g. http://127.0.0.1:11434/v1 for ollama).",
                 "Required for provider 'custom'.")
             .define("baseUrl", "");
 

@@ -218,8 +218,8 @@ public class ResilientLLMClient implements AsyncLLMClient {
                     Throwable cause = throwable instanceof CompletionException ?
                         throwable.getCause() : throwable;
 
-                    LOGGER.error("[{}] Request failed after all retries, using fallback: {}",
-                        providerId, cause.getMessage());
+                    LOGGER.error("[{}] Request failed after all retries, using fallback: {}: {}",
+                        providerId, cause.getClass().getSimpleName(), cause.getMessage());
 
                     // Generate fallback response
                     return fallbackHandler.generateFallback(prompt, cause);
