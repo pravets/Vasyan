@@ -8,6 +8,7 @@ import ru.pravets.vasyan.di.SimpleServiceContainer;
 import ru.pravets.vasyan.event.EventBus;
 import ru.pravets.vasyan.event.SimpleEventBus;
 import ru.pravets.vasyan.execution.*;
+import ru.pravets.vasyan.llm.PlanRecord;
 import ru.pravets.vasyan.llm.ResponseParser;
 import ru.pravets.vasyan.llm.TaskPlanner;
 import ru.pravets.vasyan.config.VasyanConfig;
@@ -57,6 +58,10 @@ public class ActionExecutor {
     private long planningRequestSequence = 0L;
     private long activePlanningRequestId = 0L;
 
+    // NEW: Last planning snapshot captured from a completed future (used when the
+    // TaskPlanner has not been initialized, e.g. in unit tests that inject futures).
+    private volatile PlanRecord lastPlanRecord;
+
     // NEW: Plugin architecture components
     private final ActionContext actionContext;
     private final InterceptorChain interceptorChain;
@@ -101,6 +106,25 @@ public class ActionExecutor {
             taskPlanner = new TaskPlanner();
         }
         return taskPlanner;
+    }
+
+    private TaskPlanner getTaskPlannerIfInitialized() {
+        return taskPlanner;
+    }
+
+    /**
+     * Returns the planning snapshot of the last completed planning round.
+     *
+     * <p>For real LLM planning the record comes from {@link TaskPlanner}, which
+     * captures the full prompts, raw response and metadata. When planning was
+     * driven by an injected future without an initialized {@code TaskPlanner},
+     * a partial snapshot built from the parsed response is returned instead.</p>
+     *
+     * @return the last plan record, or {@code null} if no planning has completed
+     */
+    public PlanRecord getLastPlanRecord() {
+        TaskPlanner planner = getTaskPlannerIfInitialized();
+        return planner != null ? planner.getLastPlanRecord() : lastPlanRecord;
     }
 
     /**
@@ -309,6 +333,21 @@ public class ActionExecutor {
 
                     taskQueue.clear();
                     taskQueue.addAll(response.getTasks());
+
+                    if (taskPlanner == null) {
+                        lastPlanRecord = new PlanRecord(
+                            pendingCommand,
+                            null,
+                            null,
+                            null,
+                            response.getReasoning(),
+                            response.getPlan(),
+                            response.getTasks(),
+                            0L,
+                            null,
+                            false
+                        );
+                    }
 
                     AgentDebugBuffer.log(vasyan.getVasyanName(), "PLAN",
                         "goal=\"" + truncate(currentGoal, 200) + "\", queued tasks: " + response.getTasks().size());

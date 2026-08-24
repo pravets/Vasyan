@@ -4,12 +4,19 @@ import ru.pravets.vasyan.VasyanMod;
 import ru.pravets.vasyan.action.ActionExecutor;
 import ru.pravets.vasyan.chat.ChatCommandParser;
 import ru.pravets.vasyan.chat.NameMatcher;
+import ru.pravets.vasyan.debug.VasyanEnvironmentScanner;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanManager;
+import ru.pravets.vasyan.memory.VisionScanner;
+import ru.pravets.vasyan.network.ClientboundScanDebugPacket;
+import ru.pravets.vasyan.network.VasyanNetworking;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.network.PacketDistributor;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -96,13 +103,22 @@ public final class VasyanCommandDispatcher {
      */
     private static void deliver(VasyanEntity vasyan, String command, CommandSourceStack source) {
         String lower = ChatCommandParser.normalize(command);
-        if (ChatCommandParser.isStayCommand(lower)) {
+        String lowerWithoutName = withoutFirstWord(lower);
+        if (ChatCommandParser.isStayCommand(lower) || ChatCommandParser.isStayCommand(lowerWithoutName)) {
             ActionExecutor executor = vasyan.getActionExecutor();
             executor.stopCurrentAction();
             executor.setStaying(true);
             vasyan.getNavigation().stop();
             vasyan.getMemory().clearTaskQueue();
             source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " stopped"), false);
+            return;
+        }
+
+        if (ChatCommandParser.isLookCommand(lower) || ChatCommandParser.isLookCommand(lowerWithoutName)) {
+            VasyanEnvironmentScanner.SurfaceScan scan = VasyanEnvironmentScanner.scan(vasyan);
+            triggerLookDebug(vasyan, scan);
+            vasyan.sendChatMessage(VasyanEnvironmentScanner.describe(scan));
+            source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName() + " looks around"), false);
             return;
         }
 
@@ -113,6 +129,26 @@ public final class VasyanCommandDispatcher {
                 VasyanMod.LOGGER.warn("Command processing failed for {}: {}", vasyan.getVasyanName(), e.toString());
             }
         });
+    }
+
+    /**
+     * Sends a debug overlay packet to every player tracking the Vasyan.
+     * Used by the deterministic look handler and by {@code /vasyan look}.
+     *
+     * @param scan the already-created surface scan (avoids a duplicate scan)
+     */
+    public static void triggerLookDebug(VasyanEntity vasyan, VasyanEnvironmentScanner.SurfaceScan scan) {
+        List<BlockPos> visible = new ArrayList<>();
+        for (List<BlockPos> positions : VisionScanner.getVisibleBlocks(vasyan).values()) {
+            visible.addAll(positions);
+        }
+        List<BlockPos> surfacePositions = new ArrayList<>();
+        for (VasyanEnvironmentScanner.BlockEntry entry : scan.surfaceBlocks()) {
+            surfacePositions.add(new BlockPos(entry.x(), entry.y(), entry.z()));
+        }
+        VasyanNetworking.CHANNEL.send(
+            PacketDistributor.TRACKING_ENTITY.with(() -> vasyan),
+            new ClientboundScanDebugPacket(vasyan.blockPosition(), surfacePositions, visible));
     }
 
     private static VasyanEntity nearestVasyan(CommandSourceStack source, VasyanManager manager) {
@@ -132,5 +168,16 @@ public final class VasyanCommandDispatcher {
             }
         }
         return nearest;
+    }
+
+    private static String withoutFirstWord(String lowerCommand) {
+        if (lowerCommand == null) {
+            return null;
+        }
+        int firstSpace = lowerCommand.indexOf(' ');
+        if (firstSpace < 0) {
+            return "";
+        }
+        return lowerCommand.substring(firstSpace + 1).trim();
     }
 }

@@ -39,6 +39,12 @@ public final class ChatCommandParser {
         return FILL_MARKERS.stream().anyMatch(trimmed::contains);
     }
 
+    /** Substrings that mean "look around / what do you see". */
+    private static final List<String> LOOK_MARKERS = List.of(
+        "что ты видишь", "что видишь", "что ты тут видишь", "что вокруг",
+        "look around", "what do you see", "what you see", "look"
+    );
+
     /** Substrings that mean "one full stack of the resource" ("стак"). */
     private static final List<String> STACK_MARKERS = List.of("стак", "stack of", " stack");
 
@@ -52,6 +58,36 @@ public final class ChatCommandParser {
             return false;
         }
         return STACK_MARKERS.stream().anyMatch(trimmed::contains);
+    }
+
+    /** Whether the command asks the bot to describe its surroundings. */
+    public static boolean isLookCommand(String lowerCommand) {
+        if (lowerCommand == null) {
+            return false;
+        }
+        String trimmed = lowerCommand.trim().toLowerCase(java.util.Locale.ROOT);
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+        return LOOK_MARKERS.stream().anyMatch(marker -> matchesPhrase(trimmed, marker));
+    }
+
+    private static boolean matchesPhrase(String trimmed, String marker) {
+        if (!trimmed.startsWith(marker)) {
+            return false;
+        }
+        if (trimmed.length() == marker.length()) {
+            return true;
+        }
+        // Single-word markers such as "look" must match exactly; otherwise
+        // "look for diamonds" would be misclassified as a look command.
+        if (!marker.contains(" ")) {
+            return false;
+        }
+        char next = trimmed.charAt(marker.length());
+        // Word boundary: punctuation or whitespace is fine, but not another
+        // letter/digit (so "look around" matches but "lookout" does not).
+        return !Character.isLetterOrDigit(next);
     }
 
     /** Whether the command asks for wood/trees in general (any log type). */

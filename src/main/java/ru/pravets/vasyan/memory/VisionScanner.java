@@ -87,6 +87,9 @@ public final class VisionScanner {
         INTERESTING.add(Blocks.NETHER_QUARTZ_ORE);
         INTERESTING.add(Blocks.ANCIENT_DEBRIS);
 
+        // Plants (surface)
+        INTERESTING.add(Blocks.SUGAR_CANE);
+
         // Storage
         INTERESTING.add(Blocks.CHEST);
         INTERESTING.add(Blocks.TRAPPED_CHEST);
@@ -302,10 +305,13 @@ public final class VisionScanner {
     }
 
     /**
-     * Returns the cached (or freshly scanned) map of visible interesting blocks.
-     * Cache is reused only if Vasyan is still at the same position in the same
-     * dimension and the TTL has not expired.
+     * Returns the visible interesting blocks grouped by block type, nearest first.
+     * Exposed for debug overlays and dump visualization.
      */
+    public static Map<Block, List<BlockPos>> getVisibleBlocks(VasyanEntity vasyan) {
+        return scan(vasyan);
+    }
+
     private static Map<Block, List<BlockPos>> scan(VasyanEntity vasyan) {
         long tick = vasyan.level().getGameTime();
         BlockPos pos = vasyan.blockPosition();

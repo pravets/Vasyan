@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vasyan Dump 3D Viewer</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; background: #111; color: #eee; font-family: system-ui, sans-serif; }
+    #info {
+      position: absolute; top: 10px; left: 10px; z-index: 10;
+      background: rgba(0,0,0,0.7); padding: 12px; border-radius: 8px;
+      max-width: 320px; font-size: 13px; line-height: 1.4;
+    }
+    #dropzone {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.85); border: 3px dashed #555;
+      transition: opacity .2s; pointer-events: none; opacity: 0;
+    }
+    #dropzone.active { opacity: 1; }
+    #dropzone div { text-align: center; }
+    #dropzone h2 { margin: 0 0 8px; }
+    canvas { display: block; }
+    .key { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; }
+    #tooltip {
+      position: absolute; pointer-events: none; z-index: 30;
+      background: rgba(0,0,0,0.8); padding: 6px 10px; border-radius: 6px;
+      font-size: 12px; display: none;
+    }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <script id="vasyan-textures">window.VASYAN_TEXTURES = {};</script>
+  <script id="vasyan-dump-data">window.VASYAN_DUMP = null;</script>
+  <div id="info">
+    <strong>Vasyan Dump 3D Viewer</strong><br/>
+    <span id="filename">—</span><br/>
+    <span id="scanRadius">—</span><br/><br/>
+    <span class="key" style="background:#ff4444"></span>бот<br/>
+    <span class="key" style="background:#ffaa00"></span>visible (оранжевая рамка)<br/><br/>
+    ЛКМ — вращать, ПКМ — перемещать, колесо — зум.
+  </div>
+  <div id="dropzone"><div><h2>Перетащи JSON dump</h2><p>или передай ?dump=url</p></div></div>
+  <div id="tooltip"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(30, 30, 30);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 0, 0);
+    controls.enableDamping = true;
+
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.7);
+    dir.position.set(50, 100, 50);
+    scene.add(dir);
+
+    // Helpers
+    const gridHelper = new THREE.GridHelper(64, 64, 0x444444, 0x222222);
+    scene.add(gridHelper);
+
+    const tooltip = document.getElementById('tooltip');
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const clickable = [];
+    const sceneObjects = [];
+    const textureLoader = new THREE.TextureLoader();
+    const textureCache = new Map();
+
+    const TEXTURE_BASE = 'https://raw.githubusercontent.com/InventivetalentDev/minecraft-assets/1.20.1/assets/minecraft/textures/block/';
+
+    const BLOCK_TINTS = {
+      'minecraft:grass_block': 0x91BD59,
+      'minecraft:grass': 0x91BD59,
+      'minecraft:tall_grass': 0x91BD59,
+      'minecraft:fern': 0x91BD59,
+      'minecraft:sugar_cane': 0x91BD59,
+      'minecraft:vines': 0x91BD59,
+      'minecraft:lily_pad': 0x208030,
+      'minecraft:oak_leaves': 0x48B518,
+      'minecraft:birch_leaves': 0x80A755,
+      'minecraft:spruce_leaves': 0x619961,
+      'minecraft:jungle_leaves': 0x48B518,
+      'minecraft:acacia_leaves': 0x48B518,
+      'minecraft:dark_oak_leaves': 0x48B518,
+      'minecraft:mangrove_leaves': 0x48B518,
+      'minecraft:cherry_leaves': 0xFFB7C5,
+      'minecraft:azalea_leaves': 0x48B518,
+      'minecraft:flowering_azalea_leaves': 0x48B518,
+      'minecraft:seagrass': 0x3d8c28,
+      'minecraft:tall_seagrass': 0x3d8c28,
+      'minecraft:kelp': 0x3d8c28,
+      'minecraft:water': 0x3f76e4
+    };
+
+    const ALPHA_BLOCKS = new Set([
+      'minecraft:oak_leaves', 'minecraft:birch_leaves', 'minecraft:spruce_leaves',
+      'minecraft:jungle_leaves', 'minecraft:acacia_leaves', 'minecraft:dark_oak_leaves',
+      'minecraft:mangrove_leaves', 'minecraft:cherry_leaves',
+      'minecraft:azalea_leaves', 'minecraft:flowering_azalea_leaves',
+      'minecraft:grass', 'minecraft:tall_grass', 'minecraft:fern',
+      'minecraft:sugar_cane', 'minecraft:vines',
+      'minecraft:seagrass', 'minecraft:tall_seagrass', 'minecraft:kelp'
+    ]);
+
+    function textureUrl(blockId) {
+      const name = blockId.split(':').pop();
+      const map = {
+        'grass_block': 'grass_block_top',
+        'oak_log': 'oak_log',
+        'spruce_log': 'spruce_log',
+        'birch_log': 'birch_log',
+        'jungle_log': 'jungle_log',
+        'acacia_log': 'acacia_log',
+        'dark_oak_log': 'dark_oak_log',
+        'oak_leaves': 'oak_leaves',
+        'spruce_leaves': 'spruce_leaves',
+        'birch_leaves': 'birch_leaves',
+        'sugar_cane': 'sugar_cane',
+        'seagrass': 'seagrass',
+        'tall_seagrass': 'tall_seagrass_top',
+        'kelp': 'kelp_top',
+        'tall_grass': 'tall_grass',
+        'grass': 'grass',
+        'water': 'water_still',
+        'sand': 'sand',
+        'dirt': 'dirt',
+        'stone': 'stone',
+        'cobblestone': 'cobblestone',
+        'deepslate': 'deepslate',
+        'gravel': 'gravel',
+        'coal_ore': 'coal_ore',
+        'iron_ore': 'iron_ore',
+        'copper_ore': 'copper_ore',
+        'gold_ore': 'gold_ore',
+        'redstone_ore': 'redstone_ore',
+        'lapis_ore': 'lapis_ore',
+        'diamond_ore': 'diamond_ore',
+        'emerald_ore': 'emerald_ore',
+        'bedrock': 'bedrock'
+      };
+      return TEXTURE_BASE + (map[name] || name) + '.png';
+    }
+
+    function getMaterial(blockId) {
+      if (textureCache.has(blockId)) {
+        return textureCache.get(blockId);
+      }
+      const fallbackColor = hashColor(blockId);
+      const name = blockId.split(':').pop();
+      const isWater = name === 'water';
+      const needsAlpha = isWater || ALPHA_BLOCKS.has(blockId);
+      const baseColor = BLOCK_TINTS[blockId] || fallbackColor;
+      const material = new THREE.MeshBasicMaterial({
+        color: baseColor,
+        transparent: needsAlpha,
+        alphaTest: needsAlpha ? 0.5 : 0,
+        opacity: isWater ? 0.85 : 1.0,
+        side: needsAlpha ? THREE.DoubleSide : THREE.FrontSide
+      });
+      textureCache.set(blockId, material);
+      const local = window.VASYAN_TEXTURES && window.VASYAN_TEXTURES[blockId];
+      const url = local || textureUrl(blockId);
+      textureLoader.load(url,
+        tex => {
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.magFilter = THREE.NearestFilter;
+          tex.minFilter = THREE.NearestFilter;
+          material.color.setHex(BLOCK_TINTS[blockId] || 0xffffff);
+          material.map = tex;
+          material.needsUpdate = true;
+        },
+        undefined,
+        () => { /* fallback color stays */ }
+      );
+      return material;
+    }
+
+    function hashColor(str) {
+      const palette = {
+        'minecraft:sand': 0xf6d58a,
+        'minecraft:water': 0x3f76e4,
+        'minecraft:grass_block': 0x5a8c38,
+        'minecraft:dirt': 0x866043,
+        'minecraft:stone': 0x808080,
+        'minecraft:cobblestone': 0x727272,
+        'minecraft:deepslate': 0x3d3d42,
+        'minecraft:gravel': 0x817d7a,
+        'minecraft:coal_ore': 0x464646,
+        'minecraft:iron_ore': 0xd4a47a,
+        'minecraft:copper_ore': 0xb87333,
+        'minecraft:gold_ore': 0xffd700,
+        'minecraft:redstone_ore': 0xa62b2b,
+        'minecraft:lapis_ore': 0x234abb,
+        'minecraft:diamond_ore': 0x4aedd7,
+        'minecraft:emerald_ore': 0x17dd62,
+        'minecraft:oak_log': 0x6b5229,
+        'minecraft:spruce_log': 0x3b291a,
+        'minecraft:birch_log': 0xc4bda1,
+        'minecraft:oak_leaves': 0x3d8c28,
+        'minecraft:spruce_leaves': 0x2d5a1e,
+        'minecraft:birch_leaves': 0x578f3f,
+        'minecraft:sugar_cane': 0x6fae4b,
+        'minecraft:tall_grass': 0x5c9e36,
+        'minecraft:grass': 0x5c9e36,
+        'minecraft:bedrock': 0x212121
+      };
+      if (palette[str]) return palette[str];
+      let h = 0;
+      for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+      const c = (h & 0x00ffffff).toString(16).padStart(6, '0');
+      return parseInt(c, 16);
+    }
+
+    function clearSceneObjects() {
+      for (const obj of sceneObjects) scene.remove(obj);
+      sceneObjects.length = 0;
+      clickable.length = 0;
+    }
+
+    function loadDump(data, filename) {
+      document.getElementById('filename').textContent = filename || 'dump';
+      document.getElementById('scanRadius').textContent = 'scanRadius: ' + (data.meta && data.meta.scanRadius || '?');
+      clearSceneObjects();
+
+      const vision = data.vision || {};
+      const botX = (data.meta && data.meta.x) || 0;
+      const botY = (data.meta && data.meta.y) || 0;
+      const botZ = (data.meta && data.meta.z) || 0;
+
+      // Center scene on bot
+      controls.target.set(botX, botY, botZ);
+      camera.position.set(botX + 30, botY + 30, botZ + 30);
+
+      // Bot marker
+      const botGeo = new THREE.SphereGeometry(0.5, 16, 16);
+      const botMat = new THREE.MeshBasicMaterial({ color: 0xff4444 });
+      const bot = new THREE.Mesh(botGeo, botMat);
+      bot.position.set(botX + 0.5, botY + 0.5, botZ + 0.5);
+      bot.userData = { tooltip: `Vasyan ${data.meta && data.meta.name || ''} (${botX}, ${botY}, ${botZ})` };
+      scene.add(bot);
+      clickable.push(bot);
+      sceneObjects.push(bot);
+
+      // Build set of visible block positions to avoid hiding them inside surface blocks
+      const visibleSet = new Set();
+      for (const b of vision.visibleBlocks || []) {
+        visibleSet.add(`${b.x},${b.y},${b.z}`);
+      }
+
+      // Surface blocks - instanced by blockId for performance with large radii
+      const surfaceById = new Map();
+      for (const b of vision.surfaceBlocks || []) {
+        if (visibleSet.has(`${b.x},${b.y},${b.z}`)) {
+          continue; // let visible block render with highlight
+        }
+        if (!surfaceById.has(b.id)) {
+          surfaceById.set(b.id, []);
+        }
+        surfaceById.get(b.id).push(b);
+      }
+
+      const dummy = new THREE.Object3D();
+      for (const [blockId, blocks] of surfaceById) {
+        const geo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
+        const mat = getMaterial(blockId);
+        const mesh = new THREE.InstancedMesh(geo, mat, blocks.length);
+        mesh.userData = { blocks };
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          dummy.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
+          dummy.updateMatrix();
+          mesh.setMatrixAt(i, dummy.matrix);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        scene.add(mesh);
+        clickable.push(mesh);
+        sceneObjects.push(mesh);
+      }
+
+      // Visible blocks (actual scanned positions)
+      for (const b of vision.visibleBlocks || []) {
+        const geo = new THREE.BoxGeometry(1.0, 1.0, 1.0);
+        const mat = getMaterial(b.id);
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
+        mesh.userData = { tooltip: `${b.id}\n(${b.x}, ${b.y}, ${b.z})` };
+        scene.add(mesh);
+        clickable.push(mesh);
+        sceneObjects.push(mesh);
+
+        // Highlight outline (not clickable so tooltip shows on inner block)
+        const outlineGeo = new THREE.BoxGeometry(1.05, 1.05, 1.05);
+        const outlineMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, wireframe: true, transparent: true, opacity: 0.7 });
+        const outline = new THREE.Mesh(outlineGeo, outlineMat);
+        outline.position.copy(mesh.position);
+        scene.add(outline);
+        sceneObjects.push(outline);
+      }
+
+      // Fallback: parse visibleSummary if visibleBlocks is absent (old dumps)
+      if (!vision.visibleBlocks && vision.visibleSummary) {
+        const dirAngles = { N:0, NE:45, E:90, SE:135, S:180, SW:225, W:270, NW:315 };
+        const entries = vision.visibleSummary.matchAll(/([\w:]+)\s+x(\d+)\s+\((\d+)m\s+([NSEW]+)\)/g);
+        for (const m of entries) {
+          const id = m[1]; const count = parseInt(m[2]); const dist = parseInt(m[3]); const dir = m[4];
+          const ang = (dirAngles[dir] || 0) * Math.PI / 180;
+          const vx = Math.round(botX + Math.sin(ang) * dist);
+          const vz = Math.round(botZ + Math.cos(ang) * dist);
+          const geo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+          const mat = new THREE.MeshBasicMaterial({ color: 0xffcc00, wireframe: true });
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.position.set(vx + 0.5, botY + 0.5, vz + 0.5);
+          mesh.userData = { tooltip: `${id} x${count}\n~${dist}m ${dir}` };
+          scene.add(mesh);
+          clickable.push(mesh);
+          sceneObjects.push(mesh);
+        }
+      }
+
+      // Ground plane well below the lowest surface block
+      const planeGeo = new THREE.PlaneGeometry(128, 128);
+      const planeMat = new THREE.MeshBasicMaterial({ color: 0x222222, side: THREE.DoubleSide, transparent: true, opacity: 0.15 });
+      const plane = new THREE.Mesh(planeGeo, planeMat);
+      plane.rotation.x = -Math.PI / 2;
+      plane.position.set(botX, botY - 8, botZ);
+      scene.add(plane);
+      sceneObjects.push(plane);
+    }
+
+    async function fetchDump(url) {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(resp.statusText);
+      return resp.json();
+    }
+
+    // Embedded dump injected by VasyanDumpWriter
+    if (window.VASYAN_DUMP) {
+      loadDump(window.VASYAN_DUMP, 'dump');
+    }
+
+    // URL param ?dump=...
+    const params = new URLSearchParams(window.location.search);
+    const dumpUrl = params.get('dump');
+    if (dumpUrl && !window.VASYAN_DUMP) {
+      fetchDump(dumpUrl).then(d => loadDump(d, dumpUrl)).catch(e => alert('Ошибка загрузки dump: ' + e));
+    }
+
+    // Drag & drop
+    const dz = document.getElementById('dropzone');
+    window.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('active'); });
+    window.addEventListener('dragleave', e => { if (e.relatedTarget === null) dz.classList.remove('active'); });
+    window.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('active');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const json = JSON.parse(ev.target.result);
+          loadDump(json, file.name);
+        } catch (err) { alert('Невалидный JSON: ' + err); }
+      };
+      reader.readAsText(file);
+    });
+
+    window.addEventListener('mousemove', e => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(clickable, false);
+      let tip = null;
+      if (hits.length > 0) {
+        const hit = hits[0];
+        if (hit.object.isInstancedMesh && hit.instanceId !== undefined) {
+          const blocks = hit.object.userData.blocks;
+          const b = blocks && blocks[hit.instanceId];
+          if (b) {
+            tip = `${b.id}\n(${b.x}, ${b.y}, ${b.z})`;
+          }
+        } else if (hit.object.userData.tooltip) {
+          tip = hit.object.userData.tooltip;
+        }
+      }
+      if (tip) {
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY + 12) + 'px';
+        tooltip.textContent = tip;
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
