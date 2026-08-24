@@ -14,6 +14,7 @@ import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.entity.VasyanManager;
 import ru.pravets.vasyan.llm.LLMProviders;
+import ru.pravets.vasyan.llm.TaskPlanner;
 import ru.pravets.vasyan.llm.async.OpenAICompatibleClient;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -215,46 +216,94 @@ public class VasyanCommands {
     private static int listProviders(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
 
-        String activeProvider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
-        String activeBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
+        String configuredProvider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
+        ru.pravets.vasyan.llm.resilience.ProviderChainClient chain =
+            TaskPlanner.getActiveChain();
+        String activeProvider = chain != null
+            ? chain.getActiveProviderId()
+            : configuredProvider;
+        boolean failedOver = chain != null && !activeProvider.equals(
+            chain.getMembers().get(0).getProviderId());
+
+        String configuredBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
         String activeModel = VasyanConfig.LLM_MODEL.get();
         if (activeModel == null || activeModel.isEmpty()) {
             activeModel = LLMProviders.resolveModel(activeProvider, "");
         }
-        String activeKey = VasyanConfig.LLM_API_KEY.get();
-        boolean keyPresent = activeKey != null && !activeKey.isEmpty();
-        boolean keyRequired = LLMProviders.requiresKey(activeProvider);
-        String keyLine;
-        if (LLMProviders.CUSTOM.equals(activeProvider)) {
-            // Custom endpoint may or may not need a key - depends on the server.
-            keyLine = "§eModel: §f" + activeModel + "§7 | key: §7optional";
-        } else if (!keyRequired) {
-            keyLine = "§eModel: §f" + activeModel + "§7 | key: §7not required";
-        } else {
-            keyLine = "§eModel: §f" + activeModel + "§7 | key: " + (keyPresent ? "§aset" : "§cmissing");
-        }
+        String key = VasyanConfig.LLM_API_KEY.get();
+        boolean keyPresent = key != null && !key.isEmpty();
 
         source.sendSuccess(() -> Component.literal(
-            "§eActive provider: §f" + activeProvider + "§7 (" + activeBase + ")"), false);
-        source.sendSuccess(() -> Component.literal(keyLine), false);
+            "§eActive provider: §f" + activeProvider
+                + (failedOver ? "§7 (failed over from §f" + chain.getMembers().get(0).getProviderId() + "§7)" : "")
+                + " §7(" + configuredBase + ")"), false);
 
-        // Live health check of the active provider (GET /models, 3s timeout)
-        String providerId = activeProvider;
-        String baseUrl = activeBase;
-        String apiKey = VasyanConfig.LLM_API_KEY.get();
-        String modelOverride = VasyanConfig.LLM_MODEL.get();
+        // Configured chain with per-member circuit breaker state.
+        if (chain != null) {
+            StringBuilder chainLine = new StringBuilder("§eChain: ");
+            for (int i = 0; i < chain.size(); i++) {
+                var member = chain.getMembers().get(i);
+                if (i > 0) {
+                    chainLine.append("§7 → ");
+                }
+                String cb = chain.cbStateOf(member).name();
+                boolean isActive = i == chain.getActiveIndex();
+                long cooldownMs = chain.getMemberCooldownRemainingMillis(i);
+                chainLine.append(isActive ? "§a✔ " : "§f")
+                    .append(member.getProviderId())
+                    .append("§7[CB:").append(cb);
+                if (cooldownMs > 0) {
+                    chainLine.append(", cd ").append(cooldownMs / 1000).append('s');
+                }
+                chainLine.append(']');
+            }
+            source.sendSuccess(() -> Component.literal(chainLine.toString()), false);
+            source.sendSuccess(() -> Component.literal(
+                "§7Failback to '" + chain.getMembers().get(0).getProviderId()
+                    + "' is retried every "
+                    + VasyanConfig.FAILOVER_RETRY_SECONDS.get() + "s"), false);
+        } else {
+            source.sendSuccess(() -> Component.literal(
+                "§7No providerChain configured - single-provider mode"), false);
+        }
+
+        // Model/key line for the ACTIVE provider.
+        String modelLine;
+        if (LLMProviders.CUSTOM.equals(activeProvider)) {
+            // Custom endpoint may or may not need a key - depends on the server.
+            modelLine = "§eModel: §f" + activeModel + "§7 | key: §7optional";
+        } else if (!LLMProviders.requiresKey(activeProvider)) {
+            modelLine = "§eModel: §f" + activeModel + "§7 | key: §7not required";
+        } else {
+            modelLine = "§eModel: §f" + activeModel + "§7 | key: "
+                + (keyPresent ? "§aset" : "§cmissing");
+        }
+        source.sendSuccess(() -> Component.literal(modelLine), false);
+
+        // Live health check of EVERY member of the chain, not just the head
+        // (GET /models, 3s timeout each; an unreachable /models such as some
+        // ollama setups must not fail the whole chain's health view).
+        List<String> memberIds = chain != null
+            ? chain.getMembers().stream().map(m -> m.getProviderId()).toList()
+            : List.of(configuredProvider);
         new Thread(() -> {
-            try {
-                OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
-                    providerId, baseUrl, apiKey, modelOverride,
-                    VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),
-                    VasyanConfig.LLM_JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
-                boolean healthy = client.checkHealth();
-                source.sendSuccess(() -> Component.literal(
-                    "§eHealth: " + (healthy ? "§aONLINE" : "§cUNREACHABLE") + " §7(GET " + baseUrl + "/models)"),
-                    false);
-            } catch (Exception e) {
-                source.sendSuccess(() -> Component.literal("§cHealth check error: " + e.getMessage()), false);
+            for (String memberId : memberIds) {
+                try {
+                    String base = LLMProviders.resolveBaseUrl(memberId, VasyanConfig.LLM_BASE_URL.get());
+                    OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
+                        memberId, base, key, VasyanConfig.LLM_MODEL.get(),
+                        VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),
+                        VasyanConfig.LLM_JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
+                    boolean healthy = client.checkHealth();
+                    source.sendSuccess(() -> Component.literal(
+                        "§eHealth [" + memberId + "]: "
+                            + (healthy ? "§aONLINE" : "§cUNREACHABLE")
+                            + " §7(GET " + base + "/models)"), false);
+                } catch (Exception e) {
+                    String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    source.sendSuccess(() -> Component.literal(
+                        "§eHealth [" + memberId + "]: §cERROR §7(" + message + ")"), false);
+                }
             }
         }, "vasyan-health-check").start();
 
@@ -263,7 +312,7 @@ public class VasyanCommands {
         source.sendSuccess(() -> Component.literal(
             "§7 openai, groq, gemini, ollama, lmstudio, opencode-go, custom"), false);
         source.sendSuccess(() -> Component.literal(
-            "§7 Set llm.provider in config/vasyan-common.toml to switch"), false);
+            "§7 Set llm.provider and llm.providerChain in config/vasyan-common.toml to switch"), false);
 
         return 1;
     }

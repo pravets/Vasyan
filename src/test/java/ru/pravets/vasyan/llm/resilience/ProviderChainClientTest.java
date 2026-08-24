@@ -1,0 +1,193 @@
+package ru.pravets.vasyan.llm.resilience;
+
+import ru.pravets.vasyan.llm.async.LLMResponse;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Unit tests for {@link ProviderChainClient} failover semantics (issue #33).
+ *
+ * <p>Uses hand-rolled fakes instead of Mockito: deterministic, no proxying
+ * of CompletableFuture chains.</p>
+ */
+class ProviderChainClientTest {
+
+    /** Fake member: fails (fallback response or exception) N times, then succeeds. */
+    private static class FakeMember implements ru.pravets.vasyan.llm.async.AsyncLLMClient {
+        private final String id;
+        /** Responses to hand out in order; when empty, hands out success forever. */
+        private final Deque<Object> script = new ArrayDeque<>();
+        int attempts;
+
+        FakeMember(String id) {
+            this.id = id;
+        }
+
+        /** Queue a fallback response (counts as unusable by the chain). */
+        FakeMember thenFallback() {
+            script.add("fallback");
+            return this;
+        }
+
+        /** Queue an exception. */
+        FakeMember thenError() {
+            script.add(new RuntimeException("boom: " + id));
+            return this;
+        }
+
+        /** Queue a real success response. */
+        FakeMember thenSuccess() {
+            script.add("ok");
+            return this;
+        }
+
+        @Override
+        public CompletableFuture<LLMResponse> sendAsync(String prompt, Map<String, Object> params) {
+            attempts++;
+            Object next = script.isEmpty() ? "ok" : script.poll();
+            if (next instanceof String kind) {
+                LLMResponse.Builder builder = LLMResponse.builder()
+                    .content("answer from " + id)
+                    .model("fake")
+                    .latencyMs(1)
+                    .tokensUsed(1)
+                    .fromCache(false);
+                if ("fallback".equals(kind)) {
+                    builder.content("[Fallback] pattern").providerId(ProviderChainClient.FALLBACK_PROVIDER_ID);
+                } else {
+                    builder.providerId(id);
+                }
+                return CompletableFuture.completedFuture(builder.build());
+            }
+            return CompletableFuture.failedFuture((Throwable) next);
+        }
+
+        @Override
+        public String getProviderId() {
+            return id;
+        }
+
+        @Override
+        public boolean isHealthy() {
+            return true; // never circuit-breaker OPEN in these tests
+        }
+    }
+
+    private static LLMResponse sendAndGet(ProviderChainClient chain) throws Exception {
+        return chain.sendAsync("prompt", Map.of()).get();
+    }
+
+    @Test
+    void firstFailureFailsOverToNextMemberWithinSameRequest() throws Exception {
+        FakeMember head = new FakeMember("head").thenError();
+        FakeMember backup = new FakeMember("backup");
+        List<String> switches = new java.util.ArrayList<>();
+
+        ProviderChainClient chain = new ProviderChainClient(
+            List.of(head, backup), switches::add, 60);
+
+        LLMResponse response = sendAndGet(chain);
+
+        assertEquals("backup", response.getProviderId());
+        assertEquals(1, head.attempts);
+        assertEquals(1, backup.attempts);
+        assertEquals(1, switches.size(), "exactly one switch notification");
+        assertTrue(switches.get(0).contains("backup"));
+    }
+
+    @Test
+    void fallbackResponseCountsAsMemberFailure() throws Exception {
+        // Head answers with a pattern-fallback -> chain must move on.
+        FakeMember head = new FakeMember("head").thenFallback();
+        FakeMember backup = new FakeMember("backup");
+        ProviderChainClient chain = new ProviderChainClient(List.of(head, backup), null, 60);
+
+        LLMResponse response = sendAndGet(chain);
+
+        assertEquals("backup", response.getProviderId(),
+            "unusable fallback answer must trigger the next member");
+        assertEquals(1, head.attempts, "head attempted exactly once for this request");
+    }
+
+    @Test
+    void recoversToHeadAfterCooldownElapses() throws Exception {
+        FakeMember head = new FakeMember("head").thenError().thenSuccess();
+        FakeMember backup = new FakeMember("backup");
+        List<String> switches = new java.util.ArrayList<>();
+
+        // 1-second cooldown so the test stays fast but deterministic enough.
+        ProviderChainClient chain = new ProviderChainClient(
+            List.of(head, backup), switches::add, 1);
+
+        assertEquals("backup", sendAndGet(chain).getProviderId()); // failover
+        Thread.sleep(1100);                                        // let cooldown lapse
+        assertEquals("head", sendAndGet(chain).getProviderId());   // recovery probe succeeds
+
+        assertEquals(2, switches.size(), "failover + failback notifications");
+        assertTrue(switches.get(1).contains("head"));
+    }
+
+    /** Member that always errors - models a permanently dead provider. */
+    private static final class AlwaysDeadMember extends FakeMember {
+        AlwaysDeadMember(String id) {
+            super(id);
+        }
+
+        @Override
+        public CompletableFuture<LLMResponse> sendAsync(String prompt, Map<String, Object> params) {
+            attempts++;
+            return CompletableFuture.failedFuture(new RuntimeException("still down"));
+        }
+    }
+
+    @Test
+    void cooldownPreventsRetryStormAgainstDeadHead() throws Exception {
+        AlwaysDeadMember deadHead = new AlwaysDeadMember("dead");
+        FakeMember backup = new FakeMember("backup");
+
+        ProviderChainClient chain = new ProviderChainClient(
+            List.of(deadHead, backup), null, 3600); // long cooldown
+
+        assertEquals("backup", sendAndGet(chain).getProviderId());
+        assertEquals("backup", sendAndGet(chain).getProviderId());
+        assertEquals("backup", sendAndGet(chain).getProviderId());
+
+        assertEquals(1, deadHead.attempts,
+            "dead head inside cooldown must not be retried on every request");
+    }
+
+    @Test
+    void allMembersDeadReturnsNullResponseWithoutThrowing() {
+        FakeMember a = new FakeMember("a").thenError();
+        FakeMember b = new FakeMember("b").thenError();
+
+        ProviderChainClient chain = new ProviderChainClient(List.of(a, b), null, 60);
+
+        CompletableFuture<LLMResponse> future = chain.sendAsync("p", Map.of());
+        assertDoesNotThrow(() -> assertNull(future.get(),
+            "all-dead must complete with null (caller falls back as before), not throw"));
+    }
+
+    @Test
+    void healthyActiveMemberIsNotSwitchedAwayFrom() throws Exception {
+        FakeMember head = new FakeMember("head");
+        FakeMember backup = new FakeMember("backup");
+        List<String> switches = new java.util.ArrayList<>();
+
+        ProviderChainClient chain = new ProviderChainClient(
+            List.of(head, backup), switches::add, 60);
+
+        for (int i = 0; i < 3; i++) {
+            assertEquals("head", sendAndGet(chain).getProviderId());
+        }
+        assertEquals(0, switches.size(), "no notifications without an actual switch");
+        assertEquals(0, backup.attempts);
+    }
+}

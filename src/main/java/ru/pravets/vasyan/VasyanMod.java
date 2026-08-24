@@ -51,6 +51,8 @@ public class VasyanMod {
     }
 
     private static VasyanManager vasyanManager;
+    /** Current dedicated/integrated server, kept for cross-cutting notifications. */
+    private static volatile net.minecraft.server.MinecraftServer currentServer;
 
     public VasyanMod() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
@@ -92,6 +94,7 @@ public class VasyanMod {
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END && vasyanManager != null && event.getServer() != null) {
+            currentServer = event.getServer();
             for (ServerLevel level : event.getServer().getAllLevels()) {
                 vasyanManager.tick(level);
             }
@@ -100,6 +103,15 @@ public class VasyanMod {
 
     public static VasyanManager getVasyanManager() {
         return vasyanManager;
+    }
+
+    /**
+     * The running server instance, or {@code null} when no server is up.
+     * Used for cross-cutting notifications (e.g. LLM provider failover chat
+     * messages) that originate outside any specific entity/level context.
+     */
+    public static net.minecraft.server.MinecraftServer getCurrentServer() {
+        return currentServer;
     }
 }
 

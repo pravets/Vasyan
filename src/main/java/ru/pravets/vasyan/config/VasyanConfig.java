@@ -2,9 +2,13 @@ package ru.pravets.vasyan.config;
 
 import net.minecraftforge.common.ForgeConfigSpec;
 
+import java.util.List;
+
 public class VasyanConfig {
     public static final ForgeConfigSpec SPEC;
     public static final ForgeConfigSpec.ConfigValue<String> AI_PROVIDER;
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> PROVIDER_CHAIN;
+    public static final ForgeConfigSpec.IntValue FAILOVER_RETRY_SECONDS;
     public static final ForgeConfigSpec.ConfigValue<String> LLM_BASE_URL;
     public static final ForgeConfigSpec.ConfigValue<String> LLM_API_KEY;
     public static final ForgeConfigSpec.ConfigValue<String> LLM_MODEL;
@@ -46,6 +50,24 @@ public class VasyanConfig {
         AI_PROVIDER = builder
             .comment("Active LLM provider")
             .define("provider", "ollama");
+
+        PROVIDER_CHAIN = builder
+            .comment("Provider failover chain, in priority order. Example:",
+                "  providerChain = [\"opencode-go\", \"ollama\"]",
+                "If a request to the active provider fails, the next provider in this",
+                "list is tried within the SAME request. When the head (highest-priority)",
+                "provider recovers, traffic automatically fails back after",
+                "failoverRetrySeconds. Empty or missing = single-provider mode using",
+                "'provider' only (backward compatible). Unknown ids are skipped with a",
+                "warning; duplicates are removed.")
+            .defineListAllowEmpty("providerChain", java.util.Collections::<String>emptyList,
+                o -> o instanceof String s && !s.isBlank());
+
+        FAILOVER_RETRY_SECONDS = builder
+            .comment("Seconds before the chain retries the highest-priority provider",
+                "after failing over to a lower-priority one (cooldown).",
+                "Also throttles recovery probes so a dead head is not hammered.")
+            .defineInRange("failoverRetrySeconds", 60, 5, 3600);
 
         LLM_BASE_URL = builder
             .comment("Base URL override. Empty = preset default (e.g. http://127.0.0.1:11434/v1 for ollama).",
