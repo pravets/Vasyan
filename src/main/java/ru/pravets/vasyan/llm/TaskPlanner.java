@@ -104,10 +104,15 @@ public class TaskPlanner {
      * duplicates removed, and an effectively-empty chain yields {@code null}
      * (= single-provider mode via {@code llm.provider}).
      *
-     * <p>Note: every member resolves baseUrl/model from the SAME shared config
-     * fields ({@code llm.baseUrl}/{@code llm.apiKey}/{@code llm.model}); a
-     * non-empty override therefore applies to ALL members. Per-member overrides
-     * are out of scope for issue #33.
+     * <p>Resolution order for each member's settings (most specific wins):
+     * <ol>
+     *   <li>{@code llm.members.<id>} section ({@code apiKey}/{@code model}/{@code baseUrl}),</li>
+     *   <li>shared {@code llm.apiKey} / {@code llm.model} / {@code llm.baseUrl},</li>
+     *   <li>the provider preset default from {@link LLMProviders}.</li>
+     * </ol>
+     *
+     * <p>This makes chains of DIFFERENT providers with independent keys and
+     * models possible, including several distinct custom endpoints.</p>
      */
     private ProviderChainClient buildProviderChain(ResilientLLMClient primaryResilient) {
         List<? extends String> rawChain = VasyanConfig.PROVIDER_CHAIN.get();
@@ -136,18 +141,24 @@ public class TaskPlanner {
                 // Head of the chain == llm.provider: reuse the primary client.
                 member = primaryResilient;
             } else {
+                VasyanConfig.MemberSection section = memberSection(id);
+                String memberKey = firstNonEmpty(section.apiKey().get(), VasyanConfig.LLM_API_KEY.get());
+                String memberModel = firstNonEmpty(section.model().get(), VasyanConfig.LLM_MODEL.get());
+                String memberBaseUrl = firstNonEmpty(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get());
+
                 OpenAICompatibleClient base = OpenAICompatibleClient.forProvider(
                     id,
-                    VasyanConfig.LLM_BASE_URL.get(),
-                    VasyanConfig.LLM_API_KEY.get(),
-                    VasyanConfig.LLM_MODEL.get(),
+                    memberBaseUrl,
+                    memberKey,
+                    memberModel,
                     VasyanConfig.MAX_TOKENS.get(),
                     VasyanConfig.TEMPERATURE.get(),
                     VasyanConfig.LLM_JSON_MODE.get(),
                     VasyanConfig.LLM_TIMEOUT_SECONDS.get());
                 if (LLMProviders.requiresKey(id) && !base.hasApiKey()) {
                     VasyanMod.LOGGER.warn("providerChain: provider '{}' requires an API key " +
-                        "but llm.apiKey is empty - its calls will fail until the key is set.", id);
+                        "but neither llm.members.{}.apiKey nor llm.apiKey is set - " +
+                        "its calls will fail until a key is configured.", id, id);
                 }
                 member = new ResilientLLMClient(base, llmCache, new LLMFallbackHandler());
             }
@@ -167,6 +178,24 @@ public class TaskPlanner {
 
     private static boolean containsId(List<AsyncLLMClient> members, String id) {
         return members.stream().anyMatch(m -> id.equals(m.getProviderId()));
+    }
+
+    /** Per-provider override section for the given chain member id. */
+    private static VasyanConfig.MemberSection memberSection(String id) {
+        return switch (id) {
+            case LLMProviders.OPENAI -> VasyanConfig.MEMBER_OPENAI;
+            case LLMProviders.GROQ -> VasyanConfig.MEMBER_GROQ;
+            case LLMProviders.GEMINI -> VasyanConfig.MEMBER_GEMINI;
+            case LLMProviders.OLLAMA -> VasyanConfig.MEMBER_OLLAMA;
+            case LLMProviders.LMSTUDIO -> VasyanConfig.MEMBER_LMSTUDIO;
+            case LLMProviders.OPENCODE_GO -> VasyanConfig.MEMBER_OPENCODE_GO;
+            default -> VasyanConfig.MEMBER_CUSTOM;
+        };
+    }
+
+    /** First non-blank string, or the fallback. */
+    private static String firstNonEmpty(String value, String fallback) {
+        return value != null && !value.isBlank() ? value : fallback;
     }
 
     private static String describeChain(ProviderChainClient chain) {

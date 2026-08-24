@@ -1,6 +1,7 @@
 package ru.pravets.vasyan.config;
 
 import net.minecraftforge.common.ForgeConfigSpec;
+import ru.pravets.vasyan.llm.LLMProviders;
 
 import java.util.List;
 
@@ -9,6 +10,13 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.ConfigValue<String> AI_PROVIDER;
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> PROVIDER_CHAIN;
     public static final ForgeConfigSpec.IntValue FAILOVER_RETRY_SECONDS;
+    public static final MemberSection MEMBER_OPENAI;
+    public static final MemberSection MEMBER_GROQ;
+    public static final MemberSection MEMBER_GEMINI;
+    public static final MemberSection MEMBER_OLLAMA;
+    public static final MemberSection MEMBER_LMSTUDIO;
+    public static final MemberSection MEMBER_OPENCODE_GO;
+    public static final MemberSection MEMBER_CUSTOM;
     public static final ForgeConfigSpec.ConfigValue<String> LLM_BASE_URL;
     public static final ForgeConfigSpec.ConfigValue<String> LLM_API_KEY;
     public static final ForgeConfigSpec.ConfigValue<String> LLM_MODEL;
@@ -59,7 +67,10 @@ public class VasyanConfig {
                 "provider recovers, traffic automatically fails back after",
                 "failoverRetrySeconds. Empty or missing = single-provider mode using",
                 "'provider' only (backward compatible). Unknown ids are skipped with a",
-                "warning; duplicates are removed.")
+                "warning; duplicates are removed.",
+                "Per-member settings (apiKey/model/baseUrl) live in the [llm.members.<id>]",
+                "sections below; unset fields fall back to the presets or the shared",
+                "llm.* values.")
             .defineListAllowEmpty("providerChain", java.util.Collections::<String>emptyList,
                 o -> o instanceof String s && !s.isBlank());
 
@@ -68,6 +79,27 @@ public class VasyanConfig {
                 "after failing over to a lower-priority one (cooldown).",
                 "Also throttles recovery probes so a dead head is not hammered.")
             .defineInRange("failoverRetrySeconds", 60, 5, 3600);
+
+        builder.comment("Per-provider overrides for providerChain members.",
+                "Each section only needs the fields that differ from the defaults:",
+                "unset/empty fields fall back to the preset default or the shared",
+                "llm.baseUrl / llm.apiKey / llm.model values.",
+                "Example:",
+                "  [llm.members.opencode-go]",
+                "  apiKey = \"zen-key-123\"",
+                "  model = \"deepseek-v4-pro\"",
+                "  [llm.members.ollama]",
+                "  baseUrl = \"http://192.168.1.50:11434/v1\"",
+                "  model = \"qwen3:14b\"")
+            .push("members");
+        MEMBER_OPENAI = MemberSection.define(builder, LLMProviders.OPENAI);
+        MEMBER_GROQ = MemberSection.define(builder, LLMProviders.GROQ);
+        MEMBER_GEMINI = MemberSection.define(builder, LLMProviders.GEMINI);
+        MEMBER_OLLAMA = MemberSection.define(builder, LLMProviders.OLLAMA);
+        MEMBER_LMSTUDIO = MemberSection.define(builder, LLMProviders.LMSTUDIO);
+        MEMBER_OPENCODE_GO = MemberSection.define(builder, LLMProviders.OPENCODE_GO);
+        MEMBER_CUSTOM = MemberSection.define(builder, LLMProviders.CUSTOM);
+        builder.pop();
 
         LLM_BASE_URL = builder
             .comment("Base URL override. Empty = preset default (e.g. http://127.0.0.1:11434/v1 for ollama).",
@@ -215,5 +247,26 @@ public class VasyanConfig {
         builder.pop();
 
         SPEC = builder.build();
+    }
+
+
+    /**
+     * Per-provider override triple for a providerChain member: apiKey, model,
+     * baseUrl. Empty values mean "use preset default or shared llm.* value".
+     */
+    public record MemberSection(
+        ForgeConfigSpec.ConfigValue<String> apiKey,
+        ForgeConfigSpec.ConfigValue<String> model,
+        ForgeConfigSpec.ConfigValue<String> baseUrl) {
+
+        static MemberSection define(ForgeConfigSpec.Builder builder, String providerId) {
+            return new MemberSection(
+                builder.comment("API key override for '" + providerId + "'. Empty = shared llm.apiKey (or none).")
+                    .define("apiKey", ""),
+                builder.comment("Model override for '" + providerId + "'. Empty = preset default or shared llm.model.")
+                    .define("model", ""),
+                builder.comment("Base URL override for '" + providerId + "'. Empty = preset default or shared llm.baseUrl.")
+                    .define("baseUrl", ""));
+        }
     }
 }
