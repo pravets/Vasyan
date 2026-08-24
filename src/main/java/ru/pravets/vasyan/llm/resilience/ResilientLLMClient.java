@@ -247,6 +247,18 @@ public class ResilientLLMClient implements AsyncLLMClient {
      * another attempt; everything else fails fast.</p>
      */
     private CompletableFuture<LLMResponse> sendWithRetries(String prompt, Map<String, Object> params, int attempt) {
+        // Circuit breaker gate: fail fast when the circuit is OPEN. The
+        // CallNotPermittedException propagates to the fallback path like any
+        // other failure (and is NOT retried: CallNotPermittedException is not
+        // an IOException/TimeoutException/retryable LLMException).
+        try {
+            circuitBreaker.acquirePermission();
+        } catch (Exception e) {
+            CompletableFuture<LLMResponse> rejected = new CompletableFuture<>();
+            rejected.completeExceptionally(e);
+            return rejected;
+        }
+
         CompletableFuture<LLMResponse> attemptFuture = delegate.sendAsync(prompt, params);
 
         // Record success/failure in the circuit breaker once this attempt settles

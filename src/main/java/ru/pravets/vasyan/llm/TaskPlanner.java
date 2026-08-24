@@ -126,7 +126,8 @@ public class TaskPlanner {
                         String hint;
                         if (reason != null && reason.contains("таймаут")) {
                             hint = "увеличь llm.timeoutSeconds в конфиге или возьми модель побыстрее";
-                        } else if (reason != null && reason.contains("соединения")) {
+                        } else if (reason != null && (reason.contains("соединения")
+                                || reason.contains("сетевая ошибка") || reason.contains("хост не найден"))) {
                             hint = "проверь, что LLM-сервер запущен и адрес верный (llm.baseUrl)";
                         } else {
                             hint = "проверь логи сервера";

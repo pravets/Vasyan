@@ -125,6 +125,9 @@ public class LLMFallbackHandler {
         if (t instanceof java.net.ConnectException) {
             return "нет соединения";
         }
+        if (t instanceof io.github.resilience4j.ratelimiter.RequestNotPermitted) {
+            return "rate limit";
+        }
         if (t instanceof java.io.IOException) {
             return "сетевая ошибка";
         }

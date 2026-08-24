@@ -147,6 +147,7 @@ public class LLMResponse {
             .tokensUsed(this.tokensUsed)
             .latencyMs(this.latencyMs)
             .fromCache(cacheFlag)
+            .failureReason(this.failureReason)
             .build();
     }
 
