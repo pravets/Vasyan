@@ -38,11 +38,46 @@ Approved 2026-08-21 with Иосиф Правец.
 9. Preserve MIT attribution to `YuvDwi/Steve`.
 10. Verify local `compileJava compileTestJava`, push PR, wait for green CI, merge, rename GitHub repo to `pravets/Vasyan`.
 
-### Phase 0.5 — Respawn bugfix
+### Phase 0.5 — Respawn bugfix ✅ (PR #25)
 
 - Боты сейчас респавнятся рядом с игроком после релога вместо восстановления сохранённой позиции.
 - Сохранять позицию/инвентарь/память в NBT и `adopt` из мира при логине.
 - Результат: после рестарта бот остаётся там, где был.
+- Фактический корень бага: `VasyanInventory` сохранял предметы компактным списком без индексов слотов — после загрузки инвентарь «съезжал». Исправлено: слоты сохраняются с индексами + legacy-fallback.
+
+### Phase 0.6 — Pathfinding overhaul
+
+**Проблема.** Навигация — слабейшее место мода на фоне mindcraft (mineflayer-pathfinder) и Baritone. Сейчас:
+
+- `PathfindAction` — наивный `moveTo(x,y,z)` + таймаут 600 тиков; застревание не диагностируется.
+- Обходы размазаны по экшенам: `GatherResourceAction` держит собственные stall-детекции (вода/деревья/шахта), `CombatAction` телепортируется при застревании. Пять копий одной логики в разных местах.
+- Ванильный `GroundPathNavigation`/`WalkNodeEvaluator` не умеет ломать/ставить блоки как часть пути.
+- Долгие маршруты (>600 тиков) невозможны.
+
+**Вдохновение:** goals-as-conditions, Movements-цены, think/tick-бюджеты и авто-replan из [mineflayer-pathfinder](https://github.com/PrismarineJS/mineflayer-pathfinder); сегментированный путьинг, кэш известного мира и пресеты риск/скорость из [Baritone](https://github.com/cabaletta/baritone). Реализация — серверно, через кастомный `PathNavigation`+`NodeEvaluator` (прецедент: MineColonies), без внешних движков.
+
+#### P1 — Гигиена навигации (маленький дифф, большой эффект)
+
+1. Иерархия целей `VasyanGoal`: `GoalNear(pos, range)`, `GoalAdjacent(block)` (встать у любой из 6 сторон — для копки/строительства), `GoalXZ`, `GoalY`, `GoalCompositeAny(goals...)`.
+2. Единый `PathMonitor`: stall-детекция (нет прогресса N тиков) + fallback-лестница replan → dig/place → hop-teleport. Вынести сюда логику воды/застревания из `GatherResourceAction`/`CombatAction`.
+3. Бюджеты: `thinkTimeout` (общий мс), `tickTimeout` (мс на тик), `searchRadius` — планирование пути не фризит сервер.
+4. Юнит-тесты на генерацию ходов (`AbstractMinecraftTest`) + RCON-сценарии в behavior_test.py («пройти реку», «встать adjacent к блоку»).
+
+#### P2 — Движок с копанием/строительством
+
+1. Кастомный `NodeEvaluator` (расширение `WalkNodeEvaluator`) с ходами DIG / PLACE / PILLAR-UP как рёбрами графа.
+2. Цены ходов в `VasyanConfig`: `digCost`, `placeCost`, `liquidCost`, `entityCost`, `maxDropDown`; scaffold-whitelist блоков.
+3. Выбор лучшего инструмента из `VasyanInventory` перед DIG-ходом (аналог `bestHarvestTool`).
+4. Правила безопасности: `dontCreateFlow` (не ломать рядом с жидкостью), не копать под падающими блоками.
+5. Авто-replan при изменении мира по пути.
+
+#### P3 — Дальние маршруты
+
+1. Сегментированный A*: маршрут режется по бюджету узлов, сегменты сшиваются — снимает лимит 600 тиков.
+2. Планирование в неисследованные чанки по кэшу `WorldKnowledge`.
+3. Пресеты движения safe/bold (bold: спринт, паркур, прыжки в воду) — конфиг + выбор через команду/LLM-планировщик.
+
+**DoD:** зелёный CI + behavior-тесты «бот доходит туда, куда раньше не доходил» (река, стена, вертикальный обрыв, дальний маршрут >1000 блоков).
 
 ### Phase 1 — Diagnostics & visibility
 
