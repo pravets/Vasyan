@@ -223,11 +223,17 @@ public class VasyanCommands {
         }
         String activeKey = VasyanConfig.LLM_API_KEY.get();
         boolean keyPresent = activeKey != null && !activeKey.isEmpty();
-        String modelLine = "§eModel: §f" + activeModel + "§7 | key: " + (keyPresent ? "§aset" : "§cmissing");
+        boolean keyRequired = LLMProviders.requiresKey(activeProvider);
+        String keyLine;
+        if (!keyRequired) {
+            keyLine = "§eModel: §f" + activeModel + "§7 | key: §7not required";
+        } else {
+            keyLine = "§eModel: §f" + activeModel + "§7 | key: " + (keyPresent ? "§aset" : "§cmissing");
+        }
 
         source.sendSuccess(() -> Component.literal(
             "§eActive provider: §f" + activeProvider + "§7 (" + activeBase + ")"), false);
-        source.sendSuccess(() -> Component.literal(modelLine), false);
+        source.sendSuccess(() -> Component.literal(keyLine), false);
 
         // Live health check of the active provider (GET /models, 3s timeout)
         String providerId = activeProvider;
