@@ -1,6 +1,7 @@
 package ru.pravets.vasyan.debug;
 
 import ru.pravets.vasyan.action.ActionExecutor;
+import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.llm.PlanRecord;
