@@ -441,8 +441,13 @@ public class TaskPlanner {
     }
 
     /**
-     * Live health check (GET /models) of the ACTUAL active provider - the
-     * chain head in single-provider mode, possibly a failover member otherwise.
+     * Live health check of the ACTUAL active provider - the chain head in
+     * single-provider mode, possibly a failover member otherwise.
+     *
+     * <p>For HTTP members this performs a real GET {@code /models} request.
+     * For non-HTTP members (e.g. test fakes or future non-OpenAI transports)
+     * only the cheap circuit-breaker liveness signal is available: the result
+     * reflects the breaker state, NOT a live network probe.</p>
      */
     public boolean pingProvider() {
         if (providerChain != null) {

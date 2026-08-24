@@ -203,12 +203,25 @@ public class ProviderChainClient implements AsyncLLMClient {
             }
             if (noneEligible) {
                 LOGGER.warn("[chain] no eligible member available right now (all OPEN or cooling down)");
-                return null;
             }
-            // Every eligible member failed: hand back the last pattern-fallback
-            // (same semantics as single-provider mode when its resilience layer
-            // exhausts retries), or null if members only threw.
-            return lastFallbackResponse[0];
+            // Every eligible member failed (or threw). Preserve the
+            // single-provider contract: the caller NEVER receives null.
+            // Prefer a real pattern-fallback produced by a member's resilience
+            // layer; if members only threw, synthesize one like
+            // {@link LLMFallbackHandler} does.
+            LLMResponse fallback = lastFallbackResponse[0];
+            if (fallback == null) {
+                fallback = LLMResponse.builder()
+                    .content(LLMFallbackHandler.DEFAULT_FALLBACK_RESPONSE)
+                    .model("fallback-pattern-matcher")
+                    .providerId(FALLBACK_PROVIDER_ID)
+                    .latencyMs(0)
+                    .tokensUsed(0)
+                    .fromCache(false)
+                    .failureReason("all providers in the failover chain are unavailable")
+                    .build();
+            }
+            return fallback;
         });
     }
 

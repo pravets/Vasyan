@@ -67,8 +67,9 @@ public class LLMFallbackHandler {
         "{\"reasoning\":\"[Fallback] Idle action detected\",\"plan\":\"Stay near the player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}"
     );
 
-    // Default response when no pattern matches
-    private static final String DEFAULT_RESPONSE =
+    // Default response when no pattern matches. Public: ProviderChainClient
+    // synthesizes the same all-dead answer without instantiating a handler.
+    public static final String DEFAULT_FALLBACK_RESPONSE =
         "{\"reasoning\":\"[Fallback] No pattern matched\",\"plan\":\"Stay near the player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}";
 
     /**
@@ -84,7 +85,7 @@ public class LLMFallbackHandler {
             error != null ? error.getClass().getSimpleName() + ": " + error.getMessage() : "unknown");
 
         String responseContent = matchPattern(prompt);
-        String matchedPattern = responseContent.equals(DEFAULT_RESPONSE) ? "default" : "pattern-match";
+        String matchedPattern = responseContent.equals(DEFAULT_FALLBACK_RESPONSE) ? "default" : "pattern-match";
 
         LOGGER.info("Fallback response generated (matched: {})", matchedPattern);
 
@@ -152,7 +153,7 @@ public class LLMFallbackHandler {
      */
     private String matchPattern(String prompt) {
         if (prompt == null || prompt.isEmpty()) {
-            return DEFAULT_RESPONSE;
+            return DEFAULT_FALLBACK_RESPONSE;
         }
 
         String lowerPrompt = prompt.toLowerCase();
@@ -187,7 +188,7 @@ public class LLMFallbackHandler {
         }
 
         LOGGER.debug("No pattern matched, using default response");
-        return DEFAULT_RESPONSE;
+        return DEFAULT_FALLBACK_RESPONSE;
     }
 
     private String truncatePrompt(String prompt, int maxLength) {

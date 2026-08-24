@@ -164,15 +164,23 @@ class ProviderChainClientTest {
     }
 
     @Test
-    void allMembersDeadReturnsNullResponseWithoutThrowing() {
+    void allMembersDeadReturnsSyntheticFallbackResponse() {
         FakeMember a = new FakeMember("a").thenError();
         FakeMember b = new FakeMember("b").thenError();
 
         ProviderChainClient chain = new ProviderChainClient(List.of(a, b), null, 60);
 
         CompletableFuture<LLMResponse> future = chain.sendAsync("p", Map.of());
-        assertDoesNotThrow(() -> assertNull(future.get(),
-            "all-dead must complete with null (caller falls back as before), not throw"));
+        LLMResponse response = assertDoesNotThrow(() -> future.get(),
+            "all-dead must still complete normally (no NPE downstream)");
+
+        // Single-provider contract: caller NEVER receives null. When members
+        // only threw (no pattern-fallback was produced), the chain synthesizes
+        // one with providerId=fallback.
+        assertNotNull(response);
+        assertEquals(ProviderChainClient.FALLBACK_PROVIDER_ID, response.getProviderId());
+        assertNotNull(response.getContent());
+        assertFalse(response.getContent().isBlank());
     }
 
     @Test
