@@ -70,7 +70,7 @@ public class ProviderChainClient implements AsyncLLMClient {
      * racing thread skips or tries a member one cooldown window early/late,
      * which is harmless.
      */
-    private final long[] lastFailureAt;
+    private final java.util.concurrent.atomic.AtomicLongArray lastFailureAt;
 
     /** Timestamp of the last attempt (success or failure) of the HEAD member; gates recovery probes. */
     private volatile long lastHeadAttemptAt = COOLDOWN_UNSET;
@@ -90,8 +90,7 @@ public class ProviderChainClient implements AsyncLLMClient {
         }
         this.onProviderChanged = onProviderChanged;
         this.failoverRetryMillis = Math.max(1, failoverRetrySeconds) * 1000L;
-        this.lastFailureAt = new long[this.members.size()];
-        Arrays.fill(this.lastFailureAt, COOLDOWN_UNSET);
+        this.lastFailureAt = new java.util.concurrent.atomic.AtomicLongArray(this.members.size());
     }
 
     @Override
@@ -136,6 +135,10 @@ public class ProviderChainClient implements AsyncLLMClient {
         int size = members.size();
         CompletableFuture<LLMResponse> pipeline = CompletableFuture.completedFuture(null);
         boolean[] anyMemberEligible = {false};
+        // Last unusable (pattern-fallback) response seen across the walk; if
+        // EVERY member fails, this is still returned so the caller degrades
+        // gracefully instead of getting a bare null.
+        LLMResponse[] lastFallbackResponse = {null};
 
         for (int offset = 0; offset < size; offset++) {
             int index = (startIndex + offset) % size;
@@ -172,8 +175,10 @@ public class ProviderChainClient implements AsyncLLMClient {
                             notifySwitch(target.getProviderId(), idx == 0, switched);
                             return CompletableFuture.completedFuture(response);
                         }
-                        // Unusable = pattern-fallback from this member's
-                        // resilience layer; treat as a member failure.
+                        // Unusable = pattern-fallback or empty answer from
+                        // this member's resilience layer; remember it as the
+                        // best-effort result and treat as a member failure.
+                        lastFallbackResponse[0] = response;
                         markFailure(idx);
                         LOGGER.warn("[chain] member '{}' returned only a fallback response",
                             target.getProviderId());
@@ -191,16 +196,33 @@ public class ProviderChainClient implements AsyncLLMClient {
             });
         }
 
-        if (!anyMemberEligible[0]) {
-            LOGGER.warn("[chain] no eligible member available right now (all OPEN or cooling down)");
-            return CompletableFuture.completedFuture(null);
-        }
-        return pipeline;
+        final boolean noneEligible = !anyMemberEligible[0];
+        return pipeline.thenApply(result -> {
+            if (result != null) {
+                return result;
+            }
+            if (noneEligible) {
+                LOGGER.warn("[chain] no eligible member available right now (all OPEN or cooling down)");
+                return null;
+            }
+            // Every eligible member failed: hand back the last pattern-fallback
+            // (same semantics as single-provider mode when its resilience layer
+            // exhausts retries), or null if members only threw.
+            return lastFallbackResponse[0];
+        });
     }
 
-    /** True when the response is a real provider answer rather than the pattern-fallback. */
+    /**
+     * True when the response is a real provider answer rather than the
+     * pattern-fallback. Empty/blank content also counts as unusable: the
+     * caller ({@code TaskPlanner.planTasksAsync}) would discard it anyway,
+     * so the chain treats it as a member failure and moves on.
+     */
     static boolean isUsable(LLMResponse response) {
-        return response != null && !FALLBACK_PROVIDER_ID.equals(response.getProviderId());
+        return response != null
+            && !FALLBACK_PROVIDER_ID.equals(response.getProviderId())
+            && response.getContent() != null
+            && !response.getContent().isBlank();
     }
 
     /** Whether this request should begin with a cooldown-gated probe of the head provider. */
@@ -211,12 +233,12 @@ public class ProviderChainClient implements AsyncLLMClient {
 
     /** A member that just failed is skipped until the cooldown elapses. */
     private boolean inCooldown(int index) {
-        long failed = lastFailureAt[index];
+        long failed = lastFailureAt.get(index);
         return failed != COOLDOWN_UNSET && System.currentTimeMillis() - failed < failoverRetryMillis;
     }
 
     private void markFailure(int index) {
-        this.lastFailureAt[index] = System.currentTimeMillis();
+        this.lastFailureAt.set(index, System.currentTimeMillis());
     }
 
     /** Head attempts (success or failure) gate the NEXT recovery probe. */
@@ -300,7 +322,7 @@ public class ProviderChainClient implements AsyncLLMClient {
 
     /** Millis until the given member leaves its failure cooldown (0 = not cooling down). */
     public long getMemberCooldownRemainingMillis(int index) {
-        long failed = lastFailureAt[index];
+        long failed = lastFailureAt.get(index);
         if (failed == COOLDOWN_UNSET) {
             return 0L;
         }

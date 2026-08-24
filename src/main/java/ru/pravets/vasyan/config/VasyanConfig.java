@@ -8,7 +8,12 @@ import java.util.List;
 public class VasyanConfig {
     public static final ForgeConfigSpec SPEC;
     public static final ForgeConfigSpec.ConfigValue<String> AI_PROVIDER;
+    /**
+     * Ordered failover chain of LLM providers (highest priority first).
+     * Empty = single-provider mode via {@link #AI_PROVIDER}.
+     */
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> PROVIDER_CHAIN;
+    /** Seconds before the chain retries the head provider after a failover. */
     public static final ForgeConfigSpec.IntValue FAILOVER_RETRY_SECONDS;
     public static final MemberSection MEMBER_OPENAI;
     public static final MemberSection MEMBER_GROQ;

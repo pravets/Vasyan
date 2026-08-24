@@ -28,6 +28,19 @@ import java.nio.file.Path;
 import java.util.List;
 
 public class VasyanCommands {
+
+    /**
+     * Shared single-thread executor for async health checks: bounds concurrent
+     * check tasks no matter how often the command is spammed, unlike a raw
+     * {@code new Thread} per invocation.
+     */
+    private static final java.util.concurrent.ExecutorService HEALTH_CHECK_EXECUTOR =
+        java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "vasyan-health-check");
+            t.setDaemon(true);
+            return t;
+        });
+
     
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("vasyan")
@@ -47,6 +60,7 @@ public class VasyanCommands {
                     .then(Commands.argument("command", StringArgumentType.greedyString())
                         .executes(VasyanCommands::tellVasyan))))
             .then(Commands.literal("providers")
+                .requires(source -> source.hasPermission(2))
                 .executes(VasyanCommands::listProviders))
             .then(Commands.literal("debug")
                 .executes(VasyanCommands::debugVasyan))
@@ -178,7 +192,7 @@ public class VasyanCommands {
         String baseUrl = base;
         String apiKey = VasyanConfig.LLM_API_KEY.get();
         String modelOverride = VasyanConfig.LLM_MODEL.get();
-        new Thread(() -> {
+        HEALTH_CHECK_EXECUTOR.execute(() -> {
             try {
                 OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
                     providerId, baseUrl, apiKey, modelOverride,
@@ -190,7 +204,7 @@ public class VasyanCommands {
             } catch (Exception e) {
                 source.sendSuccess(() -> Component.literal("§cHealth check error: " + e.getMessage()), false);
             }
-        }, "vasyan-health-check").start();
+        });
 
         // Per-Vasyan state
         var vasyans = manager.getAllVasyans();
@@ -286,7 +300,7 @@ public class VasyanCommands {
         List<String> memberIds = chain != null
             ? chain.getMembers().stream().map(m -> m.getProviderId()).toList()
             : List.of(configuredProvider);
-        new Thread(() -> {
+        HEALTH_CHECK_EXECUTOR.execute(() -> {
             for (String memberId : memberIds) {
                 try {
                     String base = LLMProviders.resolveBaseUrl(memberId, VasyanConfig.LLM_BASE_URL.get());
@@ -305,7 +319,7 @@ public class VasyanCommands {
                         "§eHealth [" + memberId + "]: §cERROR §7(" + message + ")"), false);
                 }
             }
-        }, "vasyan-health-check").start();
+        });
 
         // List all known providers
         source.sendSuccess(() -> Component.literal("§eAvailable providers:"), false);

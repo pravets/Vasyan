@@ -445,7 +445,14 @@ public class TaskPlanner {
      * chain head in single-provider mode, possibly a failover member otherwise.
      */
     public boolean pingProvider() {
-        return getBaseClient().checkHealth();
+        if (providerChain != null) {
+            AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
+            if (active instanceof OpenAICompatibleClient openAiClient) {
+                return openAiClient.checkHealth();
+            }
+            return active.isHealthy();
+        }
+        return baseClient.checkHealth();
     }
 
     /**
@@ -482,7 +489,8 @@ public class TaskPlanner {
         if (providerChain != null) {
             return providerChain.getActiveProviderId();
         }
-        return VasyanConfig.AI_PROVIDER.get().toLowerCase();
+        String configured = VasyanConfig.AI_PROVIDER.get().toLowerCase().trim();
+        return LLMProviders.isValid(configured) ? configured : LLMProviders.OLLAMA;
     }
 
     /**
