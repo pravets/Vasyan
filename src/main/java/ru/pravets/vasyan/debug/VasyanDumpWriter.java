@@ -105,6 +105,7 @@ public final class VasyanDumpWriter {
         }
         meta.addProperty("dimension", dimension);
         meta.addProperty("timestamp", LocalDateTime.now().toString());
+        meta.addProperty("scanRadius", VasyanConfig.WORLD_SCAN_RADIUS.get());
         return meta;
     }
 

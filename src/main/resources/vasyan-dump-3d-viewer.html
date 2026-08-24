@@ -43,10 +43,11 @@
   <script id="vasyan-dump-data">window.VASYAN_DUMP = null;</script>
   <div id="info">
     <strong>Vasyan Dump 3D Viewer</strong><br/>
-    <span id="filename">—</span><br/><br/>
+    <span id="filename">—</span><br/>
+    <span id="scanRadius">—</span><br/><br/>
     <span class="key" style="background:#ff4444"></span>бот<br/>
-    <span class="key" style="background:#22cc44"></span>surface blocks<br/>
-    <span class="key" style="background:#ffcc00"></span>visible blocks<br/><br/>
+    <span class="key" style="background:#91BD59"></span>surface (текстуры блоков)<br/>
+    <span class="key" style="background:#ffaa00"></span>visible (оранжевая рамка)<br/><br/>
     ЛКМ — вращать, ПКМ — перемещать, колесо — зум.
   </div>
   <div id="dropzone"><div><h2>Перетащи JSON dump</h2><p>или передай ?dump=url</p></div></div>
@@ -241,6 +242,7 @@
 
     function loadDump(data, filename) {
       document.getElementById('filename').textContent = filename || 'dump';
+      document.getElementById('scanRadius').textContent = 'scanRadius: ' + (data.meta && data.meta.scanRadius || '?');
       clearSceneObjects();
 
       const vision = data.vision || {};
@@ -306,13 +308,12 @@
         scene.add(mesh);
         clickable.push(mesh);
 
-        // Highlight outline
+        // Highlight outline (not clickable so tooltip shows on inner block)
         const outlineGeo = new THREE.BoxGeometry(1.05, 1.05, 1.05);
         const outlineMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, wireframe: true, transparent: true, opacity: 0.7 });
         const outline = new THREE.Mesh(outlineGeo, outlineMat);
         outline.position.copy(mesh.position);
         scene.add(outline);
-        clickable.push(outline);
       }
 
       // Fallback: parse visibleSummary if visibleBlocks is absent (old dumps)
