@@ -225,7 +225,10 @@ public class VasyanCommands {
         boolean keyPresent = activeKey != null && !activeKey.isEmpty();
         boolean keyRequired = LLMProviders.requiresKey(activeProvider);
         String keyLine;
-        if (!keyRequired) {
+        if (LLMProviders.CUSTOM.equals(activeProvider)) {
+            // Custom endpoint may or may not need a key - depends on the server.
+            keyLine = "§eModel: §f" + activeModel + "§7 | key: §7optional";
+        } else if (!keyRequired) {
             keyLine = "§eModel: §f" + activeModel + "§7 | key: §7not required";
         } else {
             keyLine = "§eModel: §f" + activeModel + "§7 | key: " + (keyPresent ? "§aset" : "§cmissing");
