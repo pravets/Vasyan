@@ -25,8 +25,8 @@ public final class LLMProviders {
         OPENAI,     new Preset("https://api.openai.com/v1", "gpt-4o-mini", true),
         GROQ,       new Preset("https://api.groq.com/openai/v1", "llama-3.1-8b-instant", true),
         GEMINI,     new Preset("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", true),
-        OLLAMA,     new Preset("http://localhost:11434/v1", "llama3.1", false),
-        LMSTUDIO,   new Preset("http://localhost:1234/v1", "", false),
+        OLLAMA,     new Preset("http://127.0.0.1:11434/v1", "llama3.1", false),
+        LMSTUDIO,   new Preset("http://127.0.0.1:1234/v1", "", false),
         OPENCODE_GO, new Preset("https://opencode.ai/zen/go/v1", "deepseek-v4-flash", true),
         CUSTOM,     new Preset("", "", false)
     );

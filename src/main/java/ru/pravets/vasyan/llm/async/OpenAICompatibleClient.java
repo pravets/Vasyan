@@ -153,7 +153,9 @@ public class OpenAICompatibleClient implements AsyncLLMClient {
             }
             return healthy;
         } catch (Exception e) {
-            LOGGER.warn("[{}] Health check failed: {}", providerId, e.getMessage());
+            LOGGER.warn("[{}] Health check failed ({}): {} against {}",
+                providerId, e.getClass().getSimpleName(),
+                e.getMessage() != null ? e.getMessage() : "no message", baseUrl);
             return false;
         }
     }
