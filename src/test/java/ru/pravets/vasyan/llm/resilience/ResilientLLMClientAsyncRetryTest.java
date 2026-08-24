@@ -114,4 +114,30 @@ class ResilientLLMClientAsyncRetryTest {
         assertEquals(ResilienceConfig.getRetryMaxAttempts(), delegate.attempts.get(),
             "Exactly maxAttempts tries, no more");
     }
+
+    @Test
+    void retryablePredicatesMatchConfigRules() {
+        // IOException / TimeoutException -> retryable, recordable
+        assertTrue(ResilientLLMClient.isRetryable(new IOException("io")));
+        assertTrue(ResilientLLMClient.isRetryable(
+            new java.net.http.HttpTimeoutException("slow")));
+        assertTrue(ResilientLLMClient.isRecordableByCircuitBreaker(new IOException("io")));
+
+        // Retryable vs non-retryable LLMException
+        assertTrue(ResilientLLMClient.isRetryable(new ru.pravets.vasyan.llm.async.LLMException(
+            "server blew up", ru.pravets.vasyan.llm.async.LLMException.ErrorType.SERVER_ERROR,
+            "p", true)));
+        assertFalse(ResilientLLMClient.isRetryable(new ru.pravets.vasyan.llm.async.LLMException(
+            "bad key", ru.pravets.vasyan.llm.async.LLMException.ErrorType.AUTH_ERROR,
+            "p", false)));
+
+        // IllegalArgumentException -> not retried, not recorded by CB
+        assertFalse(ResilientLLMClient.isRetryable(new IllegalArgumentException("bad")));
+        assertFalse(ResilientLLMClient.isRecordableByCircuitBreaker(new IllegalArgumentException("bad")));
+
+        // Unknown exceptions -> neither retried nor recorded
+        RuntimeException mystery = new IllegalStateException("???");
+        assertFalse(ResilientLLMClient.isRetryable(mystery));
+        assertFalse(ResilientLLMClient.isRecordableByCircuitBreaker(mystery));
+    }
 }

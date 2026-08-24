@@ -68,6 +68,17 @@ public class ResilientLLMClient implements AsyncLLMClient {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ResilientLLMClient.class);
 
+    /**
+     * Shared daemon scheduler for retry backoff delays and async chain starts.
+     * One thread is enough: it only schedules, never blocks.
+     */
+    private static final java.util.concurrent.ScheduledExecutorService RETRY_SCHEDULER =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "vasyan-retry-scheduler");
+            t.setDaemon(true);
+            return t;
+        });
+
     private final AsyncLLMClient delegate;
     private final LLMCache cache;
     private final LLMFallbackHandler fallbackHandler;
@@ -93,8 +104,15 @@ public class ResilientLLMClient implements AsyncLLMClient {
     }
 
     /**
-     * Constructs a ResilientLLMClient with a custom initial retry backoff in ms.
-     * Used by tests to keep retry delays short.
+     * Constructs a ResilientLLMClient with a custom initial retry backoff.
+     *
+     * @param delegate              the underlying AsyncLLMClient to wrap
+     * @param cache                 cache for storing responses
+     * @param fallbackHandler       handler for fallback responses when all fails
+     * @param retryInitialBackoffMs initial retry delay in milliseconds; must be
+     *                              positive. Subsequent delays double
+     *                              (initial, 2×initial, 4×initial...). Use a small
+     *                              value (e.g. 10) in tests to keep them fast.
      */
     public ResilientLLMClient(AsyncLLMClient delegate, LLMCache cache, LLMFallbackHandler fallbackHandler,
                               long retryInitialBackoffMs) {
@@ -210,11 +228,16 @@ public class ResilientLLMClient implements AsyncLLMClient {
         String providerId = delegate.getProviderId();
 
         try {
-            // Rate limiter + bulkhead remain synchronous gates: they decide
-            // whether we may START an attempt at all.
-            rateLimiter.acquirePermission();
-            return bulkhead.executeSupplier(() ->
-                sendWithRetries(prompt, params, 1))
+            // Rate limiter gate (non-blocking): no permission -> immediate
+            // fallback via RequestNotPermitted, nothing is started. The
+            // bulkhead still bounds concurrency of in-flight chains.
+            if (!rateLimiter.acquirePermission()) {
+                throw io.github.resilience4j.ratelimiter.RequestNotPermitted
+                    .createRequestNotPermitted(rateLimiter);
+            }
+            return CompletableFuture.supplyAsync(() ->
+                sendWithRetries(prompt, params, 1), RETRY_SCHEDULER)
+                .thenCompose(f -> f)
                 .thenApply(response -> {
                     cache.put(prompt,
                         (String) params.getOrDefault("model", "unknown"), providerId, response);
@@ -261,14 +284,16 @@ public class ResilientLLMClient implements AsyncLLMClient {
 
         CompletableFuture<LLMResponse> attemptFuture = delegate.sendAsync(prompt, params);
 
-        // Record success/failure in the circuit breaker once this attempt settles
+        // Record success/failure (with real duration) in the circuit breaker
+        long startedAt = System.nanoTime();
         attemptFuture.whenComplete((response, error) -> {
+            long elapsed = System.nanoTime() - startedAt;
             if (error == null) {
-                circuitBreaker.onSuccess(0, java.util.concurrent.TimeUnit.NANOSECONDS);
+                circuitBreaker.onSuccess(elapsed, java.util.concurrent.TimeUnit.NANOSECONDS);
             } else {
                 Throwable cause = unwrap(error);
                 if (isRecordableByCircuitBreaker(cause)) {
-                    circuitBreaker.onError(0, java.util.concurrent.TimeUnit.NANOSECONDS, cause);
+                    circuitBreaker.onError(elapsed, java.util.concurrent.TimeUnit.NANOSECONDS, cause);
                 }
             }
         });
@@ -304,25 +329,20 @@ public class ResilientLLMClient implements AsyncLLMClient {
                     delegate.getProviderId(), attempt, maxAttempts,
                     cause.getClass().getSimpleName(), cause.getMessage(), delayMs);
 
-                java.util.concurrent.ScheduledExecutorService scheduler =
-                    java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
-                        Thread t = new Thread(r, "vasyan-retry-" + delegate.getProviderId());
-                        t.setDaemon(true);
-                        return t;
-                    });
-                try {
-                    CompletableFuture<LLMResponse> delayed = new CompletableFuture<>();
-                    scheduler.schedule(() -> {
-                        try {
-                            delayed.complete(sendWithRetries(prompt, params, attempt + 1).join());
-                        } catch (Throwable t2) {
-                            delayed.completeExceptionally(unwrap(t2));
-                        }
-                    }, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
-                    return delayed;
-                } finally {
-                    scheduler.shutdown();
-                }
+                // Shared daemon scheduler; the next attempt is composed
+                // asynchronously - no thread is blocked waiting on it.
+                CompletableFuture<LLMResponse> delayed = new CompletableFuture<>();
+                RETRY_SCHEDULER.schedule(
+                    () -> sendWithRetries(prompt, params, attempt + 1)
+                        .whenComplete((resp, err) -> {
+                            if (err != null) {
+                                delayed.completeExceptionally(unwrap(err));
+                            } else {
+                                delayed.complete(resp);
+                            }
+                        }),
+                    delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+                return delayed;
             });
     }
 
@@ -336,9 +356,9 @@ public class ResilientLLMClient implements AsyncLLMClient {
     /**
      * Mirrors ResilienceConfig.createRetryConfig().retryOnException:
      * IOException, TimeoutException and retryable LLMException are retried;
-     * everything else fails fast.
+     * everything else fails fast. Package-private for tests.
      */
-    private static boolean isRetryable(Throwable t) {
+    static boolean isRetryable(Throwable t) {
         if (t instanceof java.io.IOException || t instanceof java.util.concurrent.TimeoutException) {
             return true;
         }
@@ -351,8 +371,9 @@ public class ResilientLLMClient implements AsyncLLMClient {
     /**
      * Mirrors ResilienceConfig.createCircuitBreakerConfig(): record IOException,
      * TimeoutException and LLMException; ignore IllegalArgumentException.
+     * Package-private for tests.
      */
-    private static boolean isRecordableByCircuitBreaker(Throwable t) {
+    static boolean isRecordableByCircuitBreaker(Throwable t) {
         if (t instanceof IllegalArgumentException) {
             return false;
         }

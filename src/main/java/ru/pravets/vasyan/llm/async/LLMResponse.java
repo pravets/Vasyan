@@ -40,8 +40,12 @@ public class LLMResponse {
 
     /**
      * Human-readable failure reason when this response was produced by the
-     * fallback handler (null for real LLM responses). Examples:
-     * "HttpTimeoutException: request timed out", "ConnectException: refused".
+     * fallback handler (null for real LLM responses).
+     *
+     * <p>Possible values come from {@code LLMFallbackHandler.describeFailure()}:
+     * «таймаут», «нет соединения», «хост не найден», «сетевая ошибка»,
+     * «rate limit», «неверный API-ключ», «ошибка сервера», an
+     * exception-simple-name, or "unknown".</p>
      */
     private final String failureReason;
 
@@ -58,7 +62,9 @@ public class LLMResponse {
     /**
      * Returns why this response came from fallback, or null for real LLM responses.
      *
-     * @return short error description ("TIMEOUT", "CONNECTION", "HTTP 500", ...) or null
+     * @return one of «таймаут», «нет соединения», «хост не найден», «сетевая
+     *         ошибка», «rate limit», «неверный API-ключ», «ошибка сервера»,
+     *         an exception simple name, "unknown" — or null for real responses
      */
     public String getFailureReason() {
         return failureReason;
