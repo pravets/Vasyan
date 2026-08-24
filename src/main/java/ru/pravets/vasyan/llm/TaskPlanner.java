@@ -122,8 +122,19 @@ public class TaskPlanner {
                     // local fallback plan was used, so a wrong-looking
                     // behavior (e.g. follow instead of gather) is explained.
                     if ("fallback".equals(response.getProviderId())) {
-                        vasyan.sendChatMessage("⚠️ LLM недоступен (" + response.getModel()
-                            + ") — запасной план: " + parsed.getPlan());
+                        String reason = response.getFailureReason();
+                        String hint;
+                        if (reason != null && reason.contains("таймаут")) {
+                            hint = "увеличь llm.timeoutSeconds в конфиге или возьми модель побыстрее";
+                        } else if (reason != null && reason.contains("соединения")) {
+                            hint = "проверь, что LLM-сервер запущен и адрес верный (llm.baseUrl)";
+                        } else {
+                            hint = "проверь логи сервера";
+                        }
+                        vasyan.sendChatMessage("⚠️ LLM недоступен: "
+                            + (reason != null ? reason : "неизвестная ошибка")
+                            + " — запасной план: " + parsed.getPlan()
+                            + ". Подсказка: " + hint);
                     }
                     AgentDebugBuffer.log(vasyan.getVasyanName(), "PARSE",
                         "ok, " + parsed.getTasks().size() + " tasks, plan=\"" + truncate(parsed.getPlan(), 200)

@@ -76,6 +76,7 @@ public class ResilientLLMClient implements AsyncLLMClient {
     private final Retry retry;
     private final RateLimiter rateLimiter;
     private final Bulkhead bulkhead;
+    private final long retryInitialBackoffMs;
 
     /**
      * Constructs a ResilientLLMClient wrapping the given delegate.
@@ -87,9 +88,20 @@ public class ResilientLLMClient implements AsyncLLMClient {
      * @param fallbackHandler Handler for fallback responses when all fails
      */
     public ResilientLLMClient(AsyncLLMClient delegate, LLMCache cache, LLMFallbackHandler fallbackHandler) {
+        this(delegate, cache, fallbackHandler,
+            ResilienceConfig.getRetryInitialIntervalMs());
+    }
+
+    /**
+     * Constructs a ResilientLLMClient with a custom initial retry backoff in ms.
+     * Used by tests to keep retry delays short.
+     */
+    public ResilientLLMClient(AsyncLLMClient delegate, LLMCache cache, LLMFallbackHandler fallbackHandler,
+                              long retryInitialBackoffMs) {
         this.delegate = delegate;
         this.cache = cache;
         this.fallbackHandler = fallbackHandler;
+        this.retryInitialBackoffMs = retryInitialBackoffMs;
 
         String providerId = delegate.getProviderId();
         LOGGER.info("Initializing resilient client for provider: {}", providerId);
@@ -140,16 +152,8 @@ public class ResilientLLMClient implements AsyncLLMClient {
                     event.getElapsedDuration().toMillis());
             });
 
-        // Retry events
-        retry.getEventPublisher()
-            .onRetry(event -> {
-                LOGGER.warn("[{}] Retry attempt {} of {} after {} (reason: {})",
-                    providerId,
-                    event.getNumberOfRetryAttempts(),
-                    ResilienceConfig.getRetryMaxAttempts(),
-                    event.getWaitInterval(),
-                    event.getLastThrowable() != null ? event.getLastThrowable().getMessage() : "unknown");
-            });
+        // Retry events are now emitted by sendWithRetries (async-aware retry);
+        // the resilience4j Retry instance is no longer used for decoration.
 
         // Rate limiter events
         rateLimiter.getEventPublisher()
@@ -189,82 +193,160 @@ public class ResilientLLMClient implements AsyncLLMClient {
     /**
      * Executes the request with all resilience patterns applied.
      *
+     * <p>Unlike the previous implementation (issue #36), retries and circuit
+     * breaker operate on the <em>completion</em> of the underlying future,
+     * not on the synchronous creation of it. resilience4j's
+     * {@code Retry.decorateSupplier} cannot see exceptions that surface
+     * through a CompletableFuture after the supplier has returned, so async
+     * failures were never retried. Here each retry attempt is chained via
+     * {@code exceptionallyCompose}, and every completed attempt (success or
+     * failure) is recorded in the circuit breaker.</p>
+     *
      * @param prompt Request prompt
      * @param params Request parameters
      * @return CompletableFuture with response
      */
     private CompletableFuture<LLMResponse> executeWithResilience(String prompt, Map<String, Object> params) {
         String providerId = delegate.getProviderId();
-        String model = (String) params.getOrDefault("model", "unknown");
-
-        // Create supplier that wraps the async call
-        Supplier<CompletableFuture<LLMResponse>> asyncSupplier = () -> delegate.sendAsync(prompt, params);
-
-        // Apply resilience patterns in order: RateLimiter -> Bulkhead -> CircuitBreaker -> Retry
-        // Each decorator wraps the previous one
-        Supplier<CompletableFuture<LLMResponse>> decoratedSupplier = decorateWithResilience(asyncSupplier);
 
         try {
-            return decoratedSupplier.get()
+            // Rate limiter + bulkhead remain synchronous gates: they decide
+            // whether we may START an attempt at all.
+            rateLimiter.acquirePermission();
+            return bulkhead.executeSupplier(() ->
+                sendWithRetries(prompt, params, 1))
                 .thenApply(response -> {
-                    // Cache successful response
-                    cache.put(prompt, model, providerId, response);
+                    cache.put(prompt,
+                        (String) params.getOrDefault("model", "unknown"), providerId, response);
                     LOGGER.debug("[{}] Request successful, cached response (latency: {}ms, tokens: {})",
                         providerId, response.getLatencyMs(), response.getTokensUsed());
                     return response;
                 })
                 .exceptionally(throwable -> {
-                    // Unwrap CompletionException if needed
                     Throwable cause = throwable instanceof CompletionException ?
                         throwable.getCause() : throwable;
-
                     LOGGER.error("[{}] Request failed after all retries, using fallback: {}: {}",
                         providerId, cause.getClass().getSimpleName(), cause.getMessage());
-
-                    // Generate fallback response
                     return fallbackHandler.generateFallback(prompt, cause);
                 });
-
         } catch (Exception e) {
-            // Handle synchronous exceptions from rate limiter/bulkhead
+            // Synchronous rejection from rate limiter / bulkhead
             LOGGER.error("[{}] Request rejected by resilience layer: {}", providerId, e.getMessage());
             return CompletableFuture.completedFuture(fallbackHandler.generateFallback(prompt, e));
         }
     }
 
     /**
-     * Decorates the supplier with all resilience patterns.
+     * Sends one attempt and chains retries onto the future's completion.
      *
-     * <p><b>Order of decoration (innermost to outermost):</b></p>
-     * <ol>
-     *   <li>Retry (innermost) - retries on failure</li>
-     *   <li>Circuit Breaker - fails fast if circuit is open</li>
-     *   <li>Bulkhead - limits concurrent calls</li>
-     *   <li>Rate Limiter (outermost) - limits call rate</li>
-     * </ol>
-     *
-     * @param supplier Original supplier
-     * @return Decorated supplier
+     * <p>Attempt counting starts at 1; up to {@link ResilienceConfig#getRetryMaxAttempts()}
+     * attempts are made. Between attempts there is an exponential backoff
+     * (initial interval from {@code retryInitialBackoffMs}). Only errors
+     * considered retryable by {@link ResilienceConfig#createRetryConfig()}
+     * logic (IOException, TimeoutException, retryable LLMException) trigger
+     * another attempt; everything else fails fast.</p>
      */
-    private Supplier<CompletableFuture<LLMResponse>> decorateWithResilience(
-            Supplier<CompletableFuture<LLMResponse>> supplier) {
+    private CompletableFuture<LLMResponse> sendWithRetries(String prompt, Map<String, Object> params, int attempt) {
+        CompletableFuture<LLMResponse> attemptFuture = delegate.sendAsync(prompt, params);
 
-        // Apply Retry
-        Supplier<CompletableFuture<LLMResponse>> withRetry = Retry.decorateSupplier(retry, supplier);
+        // Record success/failure in the circuit breaker once this attempt settles
+        attemptFuture.whenComplete((response, error) -> {
+            if (error == null) {
+                circuitBreaker.onSuccess(0, java.util.concurrent.TimeUnit.NANOSECONDS);
+            } else {
+                Throwable cause = unwrap(error);
+                if (isRecordableByCircuitBreaker(cause)) {
+                    circuitBreaker.onError(0, java.util.concurrent.TimeUnit.NANOSECONDS, cause);
+                }
+            }
+        });
 
-        // Apply Circuit Breaker
-        Supplier<CompletableFuture<LLMResponse>> withCircuitBreaker =
-            CircuitBreaker.decorateSupplier(circuitBreaker, withRetry);
+        return attemptFuture
+            .thenApply(response -> {
+                LOGGER.debug("[{}] Attempt {} succeeded", delegate.getProviderId(), attempt);
+                return response;
+            })
+            .exceptionallyCompose(error -> {
+                Throwable cause = unwrap(error);
 
-        // Apply Bulkhead
-        Supplier<CompletableFuture<LLMResponse>> withBulkhead =
-            Bulkhead.decorateSupplier(bulkhead, withCircuitBreaker);
+                if (!isRetryable(cause)) {
+                    LOGGER.debug("[{}] Attempt {} failed with non-retryable {}: {}",
+                        delegate.getProviderId(), attempt,
+                        cause.getClass().getSimpleName(), cause.getMessage());
+                    CompletableFuture<LLMResponse> failed = new CompletableFuture<>();
+                    failed.completeExceptionally(cause);
+                    return failed;
+                }
 
-        // Apply Rate Limiter
-        Supplier<CompletableFuture<LLMResponse>> withRateLimiter =
-            RateLimiter.decorateSupplier(rateLimiter, withBulkhead);
+                int maxAttempts = ResilienceConfig.getRetryMaxAttempts();
+                if (attempt >= maxAttempts) {
+                    LOGGER.debug("[{}] Attempt {}/{} exhausted retries",
+                        delegate.getProviderId(), attempt, maxAttempts);
+                    CompletableFuture<LLMResponse> failed = new CompletableFuture<>();
+                    failed.completeExceptionally(cause);
+                    return failed;
+                }
 
-        return withRateLimiter;
+                long delayMs = retryInitialBackoffMs << (attempt - 1); // 1s, 2s, 4s...
+                LOGGER.warn("[{}] Attempt {}/{} failed ({}: {}), retrying in {}ms",
+                    delegate.getProviderId(), attempt, maxAttempts,
+                    cause.getClass().getSimpleName(), cause.getMessage(), delayMs);
+
+                java.util.concurrent.ScheduledExecutorService scheduler =
+                    java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread t = new Thread(r, "vasyan-retry-" + delegate.getProviderId());
+                        t.setDaemon(true);
+                        return t;
+                    });
+                try {
+                    CompletableFuture<LLMResponse> delayed = new CompletableFuture<>();
+                    scheduler.schedule(() -> {
+                        try {
+                            delayed.complete(sendWithRetries(prompt, params, attempt + 1).join());
+                        } catch (Throwable t2) {
+                            delayed.completeExceptionally(unwrap(t2));
+                        }
+                    }, delayMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+                    return delayed;
+                } finally {
+                    scheduler.shutdown();
+                }
+            });
+    }
+
+    /**
+     * Unwraps CompletionException to get to the real cause.
+     */
+    private static Throwable unwrap(Throwable t) {
+        return t instanceof CompletionException && t.getCause() != null ? t.getCause() : t;
+    }
+
+    /**
+     * Mirrors ResilienceConfig.createRetryConfig().retryOnException:
+     * IOException, TimeoutException and retryable LLMException are retried;
+     * everything else fails fast.
+     */
+    private static boolean isRetryable(Throwable t) {
+        if (t instanceof java.io.IOException || t instanceof java.util.concurrent.TimeoutException) {
+            return true;
+        }
+        if (t instanceof LLMException llmException) {
+            return llmException.isRetryable();
+        }
+        return false;
+    }
+
+    /**
+     * Mirrors ResilienceConfig.createCircuitBreakerConfig(): record IOException,
+     * TimeoutException and LLMException; ignore IllegalArgumentException.
+     */
+    private static boolean isRecordableByCircuitBreaker(Throwable t) {
+        if (t instanceof IllegalArgumentException) {
+            return false;
+        }
+        return t instanceof java.io.IOException
+            || t instanceof java.util.concurrent.TimeoutException
+            || t instanceof LLMException;
     }
 
     @Override

@@ -1,5 +1,6 @@
 package ru.pravets.vasyan.llm.resilience;
 
+import ru.pravets.vasyan.llm.async.LLMException;
 import ru.pravets.vasyan.llm.async.LLMResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,7 +95,50 @@ public class LLMFallbackHandler {
             .latencyMs(0)
             .tokensUsed(0)
             .fromCache(false)
+            .failureReason(describeFailure(error))
             .build();
+    }
+
+    /**
+     * Builds a short player-readable failure reason from the triggering error.
+     *
+     * @param error the exception that caused the fallback (may be null)
+     * @return e.g. "таймаут 60s", "нет соединения", "HTTP 500", "unknown"
+     */
+    static String describeFailure(Throwable error) {
+        if (error == null) {
+            return "unknown";
+        }
+        // Unwrap CompletionException chains
+        Throwable t = error;
+        while (t.getCause() != null && t.getCause() != t
+                && t instanceof java.util.concurrent.CompletionException) {
+            t = t.getCause();
+        }
+        if (t instanceof java.net.http.HttpTimeoutException
+                || t instanceof java.util.concurrent.TimeoutException) {
+            return "таймаут";
+        }
+        if (t instanceof java.nio.channels.UnresolvedAddressException) {
+            return "хост не найден";
+        }
+        if (t instanceof java.net.ConnectException) {
+            return "нет соединения";
+        }
+        if (t instanceof java.io.IOException) {
+            return "сетевая ошибка";
+        }
+        if (t instanceof LLMException llm) {
+            return switch (llm.getErrorType()) {
+                case TIMEOUT -> "таймаут";
+                case RATE_LIMIT -> "rate limit";
+                case SERVER_ERROR -> "ошибка сервера";
+                case AUTH_ERROR -> "неверный API-ключ";
+                case NETWORK_ERROR -> "нет соединения";
+                default -> llm.getErrorType().name().toLowerCase();
+            };
+        }
+        return t.getClass().getSimpleName();
     }
 
     /**

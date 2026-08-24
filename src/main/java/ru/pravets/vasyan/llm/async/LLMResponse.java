@@ -38,6 +38,13 @@ public class LLMResponse {
     private final String providerId;
     private final boolean fromCache;
 
+    /**
+     * Human-readable failure reason when this response was produced by the
+     * fallback handler (null for real LLM responses). Examples:
+     * "HttpTimeoutException: request timed out", "ConnectException: refused".
+     */
+    private final String failureReason;
+
     private LLMResponse(Builder builder) {
         this.content = Objects.requireNonNull(builder.content, "content cannot be null");
         this.model = Objects.requireNonNull(builder.model, "model cannot be null");
@@ -45,6 +52,16 @@ public class LLMResponse {
         this.tokensUsed = builder.tokensUsed;
         this.latencyMs = builder.latencyMs;
         this.fromCache = builder.fromCache;
+        this.failureReason = builder.failureReason;
+    }
+
+    /**
+     * Returns why this response came from fallback, or null for real LLM responses.
+     *
+     * @return short error description ("TIMEOUT", "CONNECTION", "HTTP 500", ...) or null
+     */
+    public String getFailureReason() {
+        return failureReason;
     }
 
     /**
@@ -184,6 +201,18 @@ public class LLMResponse {
         private long latencyMs;
         private String providerId;
         private boolean fromCache;
+        private String failureReason;
+
+        /**
+         * Sets the failure reason for fallback responses (null = real LLM response).
+         *
+         * @param failureReason Short error description, e.g. "TIMEOUT after 60s"
+         * @return This builder for method chaining
+         */
+        public Builder failureReason(String failureReason) {
+            this.failureReason = failureReason;
+            return this;
+        }
 
         /**
          * Sets the response content.

@@ -240,6 +240,15 @@ public class ResilienceConfig {
     }
 
     /**
+     * Returns the initial retry backoff interval in milliseconds.
+     *
+     * @return Initial backoff before the first retry
+     */
+    public static long getRetryInitialIntervalMs() {
+        return RETRY_INITIAL_INTERVAL_MS;
+    }
+
+    /**
      * Returns rate limit per minute for testing/monitoring.
      *
      * @return Rate limit (requests per minute)
