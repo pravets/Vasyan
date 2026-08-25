@@ -65,10 +65,12 @@ public class PathfindAction extends BaseAction {
     @Override
     protected void onTick() {
         long nowNano = System.nanoTime();
-        // The think budget bounds PATH PLANNING, not recovery: while the monitor
-        // runs its fallback ladder (dig/scaffold/teleport), progress is slow by
-        // design (paced replan windows) and the budget must not kill it.
-        if (budgets.thinkExpired(nowNano) && !monitor.inLadderRecovery()) {
+        // The think budget bounds a single PATH PLANNING attempt (a path that is
+        // being followed too long), not recovery: the monitor's fallback ladder
+        // (paced replans + dig/scaffold/teleport) legitimately takes minutes and
+        // terminates itself with finished()==true when exhausted.
+        boolean hasPath = !vasyan.getNavigation().isDone();
+        if (budgets.thinkExpired(nowNano) && hasPath) {
             result = ActionResult.failure("Pathfinding budget exhausted (think timeout)");
             return;
         }
