@@ -610,12 +610,13 @@ def test_pathfinding_scenarios(workdir, jar_path):
         reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
             pos = bot_pos()
+            print(f"  [FAIL] wall dig-through: bot_pos={pos}, pretrigger={pretrigger_fired}")
+            # Dump the tail of the SERVER log (not stdout) for full context.
             with open(log_path, "r", errors="replace") as f:
-                f.seek(offset_before := os.path.getsize(log_path) - min(200000, os.path.getsize(log_path)))
-                seg = f.read()
-            digs = len(re.findall(r"dug through", seg))
-            skips = len(re.findall(r"DIG_THROUGH skipped", seg))
-            print(f"  [FAIL] wall dig-through: bot_pos={pos}, digs={digs}, dig_skips={skips}")
+                tail = f.readlines()[-80:]
+            print("  ---- server log tail ----")
+            for line in tail:
+                print("  | " + line.rstrip())
             return 1
         if not dug:
             print("  [FAIL] wall dig-through: reached target but no DIG_THROUGH evidence in log")
