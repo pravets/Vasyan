@@ -31,21 +31,31 @@ public class TaskPlanner {
     /** Failover chain; non-null only when llm.providerChain is configured. */
     private final ProviderChainClient providerChain;
     /**
-     * Most recently constructed chain, for observability from commands that
-     * have no planner instance (/vasyan providers). All planners share the same
-     * config, so the latest one reflects the current routing setup.
+     * Mod-wide planner singleton. One chain for ALL bots: a single cooldown /
+     * circuit-breaker state, no per-bot failover races, one chat notification
+     * per switch. TaskPlanner is effectively immutable after construction, so
+     * sharing is safe; {@code getInstance()} is lazy+synchronized because the
+     * constructor reads Forge config values that are only available after
+     * config registration.
      */
-    private static volatile ProviderChainClient lastConstructedChain;
-    private volatile PlanRecord lastPlanRecord;
+    private static volatile TaskPlanner sharedInstance;
 
-    /**
-     * The active failover chain of the most recently initialized planner, or
-     * {@code null} when no planner has been created yet or no chain is
-     * configured (single-provider mode).
-     */
-    public static ProviderChainClient getActiveChain() {
-        return lastConstructedChain;
+    /** The shared planner (mod-wide). See {@link #getInstance()}. */
+    public static TaskPlanner getInstance() {
+        TaskPlanner local = sharedInstance;
+        if (local == null) {
+            synchronized (TaskPlanner.class) {
+                local = sharedInstance;
+                if (local == null) {
+                    local = new TaskPlanner();
+                    sharedInstance = local;
+                }
+            }
+        }
+        return local;
     }
+
+    private volatile PlanRecord lastPlanRecord;
 
     public PlanRecord getLastPlanRecord() {
         return lastPlanRecord;
@@ -91,7 +101,6 @@ public class TaskPlanner {
         this.providerChain = buildProviderChain(primaryResilient);
 
         this.llmClient = (providerChain != null) ? providerChain : primaryResilient;
-        lastConstructedChain = this.providerChain;
 
         VasyanMod.LOGGER.info("TaskPlanner initialized: provider={}, baseUrl={}, model={}, jsonMode={}, chain={}",
             provider, baseClient.getBaseUrl(), baseClient.getModel(), jsonMode,

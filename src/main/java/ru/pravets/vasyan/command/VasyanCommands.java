@@ -232,7 +232,7 @@ public class VasyanCommands {
 
         String configuredProvider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
         ru.pravets.vasyan.llm.resilience.ProviderChainClient chain =
-            TaskPlanner.getActiveChain();
+            TaskPlanner.getInstance().getProviderChain();
         String activeProvider = chain != null
             ? chain.getActiveProviderId()
             : configuredProvider;
@@ -353,7 +353,7 @@ public class VasyanCommands {
         return 1;
     }
 
-    /** First non-blank string, or null if both blank. */
+    /** Returns {@code a} when non-blank, otherwise {@code b} (which may be null). */
     private static String firstNonBlank(String a, String b) {
         return a != null && !a.isBlank() ? a : b;
     }

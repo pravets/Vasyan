@@ -108,6 +108,16 @@ public class VasyanMod {
         }
     }
 
+    @SubscribeEvent
+    public void onServerStopping(net.minecraftforge.event.server.ServerStoppingEvent event) {
+        // Clear the reference BEFORE the server is fully gone so late
+        // notifications (e.g. LLM failover messages) never target a stale
+        // instance. Guarded by identity: only clear OUR server.
+        if (currentServer != null && currentServer == event.getServer()) {
+            currentServer = null;
+        }
+    }
+
     public static VasyanManager getVasyanManager() {
         return vasyanManager;
     }

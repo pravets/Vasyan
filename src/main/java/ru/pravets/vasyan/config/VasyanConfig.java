@@ -19,23 +19,22 @@ public class VasyanConfig {
      * Must run before {@code registerConfig} in the mod constructor.
      */
     public static void quarantineUnparseableFile() {
-        try {
-            java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
-            java.nio.file.Path file = dir.resolve("vasyan-common.toml");
-            if (!java.nio.file.Files.exists(file)) {
-                return;
-            }
-            var parser = new com.electronwill.nightconfig.toml.TomlParser();
-            // Parse errors propagate here as ParsingException. The Reader is
-            // closed BEFORE any Files.move in the catch block - an open handle
-            // would block the rename on Windows.
-            try (var reader = java.nio.file.Files.newBufferedReader(file)) {
-                parser.parse(reader);
-            }
-        } catch (Exception parseFailure) {
+        java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
+        java.nio.file.Path file = dir.resolve("vasyan-common.toml");
+        if (!java.nio.file.Files.exists(file)) {
+            return;
+        }
+        var parser = new com.electronwill.nightconfig.toml.TomlParser();
+        // Parse errors propagate to the dedicated catch below. The Reader is
+        // closed BEFORE any Files.move there - an open handle would block the
+        // rename on Windows. A transient IOException is NOT quarantined: it
+        // is logged and the valid config stays untouched.
+        try (var reader = java.nio.file.Files.newBufferedReader(file)) {
+            parser.parse(reader);
+            return; // config parses fine - nothing to do
+        } catch (com.electronwill.nightconfig.core.io.ParsingException parseFailure) {
+            // ONLY a syntax error justifies quarantining the file.
             try {
-                java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
-                java.nio.file.Path file = dir.resolve("vasyan-common.toml");
                 String stamp = java.time.LocalDateTime.now()
                     .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
                 java.nio.file.Path backup = dir.resolve("vasyan-common.toml.broken-" + stamp);
@@ -49,6 +48,12 @@ public class VasyanConfig {
                 org.slf4j.LoggerFactory.getLogger("VasyanMod").error(
                     "Failed to quarantine broken vasyan-common.toml", quarantineFailure);
             }
+        } catch (java.io.IOException ioFailure) {
+            // Read failure (missing dir, permissions...): not a syntax problem.
+            // Do NOT touch the file; Forge's own loading will report it if real.
+            org.slf4j.LoggerFactory.getLogger("VasyanMod").warn(
+                "Could not pre-flight vasyan-common.toml ({}); skipping quarantine check.",
+                ioFailure.toString());
         }
     }
 

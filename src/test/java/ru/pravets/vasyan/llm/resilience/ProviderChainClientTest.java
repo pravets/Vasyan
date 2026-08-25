@@ -125,13 +125,27 @@ class ProviderChainClientTest {
         // 1-second cooldown so the test stays fast but deterministic enough.
         ProviderChainClient chain = new ProviderChainClient(
             List.of(head, backup), switches::add, 1);
+        long startNanos = System.nanoTime();
 
         assertEquals("backup", sendAndGet(chain).getProviderId()); // failover
-        Thread.sleep(1100);                                        // let cooldown lapse
+        awaitCooldownElapsed(startNanos, 1100);
         assertEquals("head", sendAndGet(chain).getProviderId());   // recovery probe succeeds
 
         assertEquals(2, switches.size(), "failover + failback notifications");
         assertTrue(switches.get(1).contains("head"));
+    }
+
+
+    /**
+     * Waits (polling, no fixed sleep) until at least {@code millis} have
+     * passed since {@code start} - a CI-friendly cooldown lapse: checks time
+     * in small steps instead of one brittle Thread.sleep.
+     */
+    private static void awaitCooldownElapsed(long startNanos, long millis) throws InterruptedException {
+        long deadline = startNanos + millis * 1_000_000L;
+        while (System.nanoTime() < deadline) {
+            Thread.sleep(25); // small slices; total wait ~= millis
+        }
     }
 
     /** Member that always errors - models a permanently dead provider. */
@@ -192,9 +206,10 @@ class ProviderChainClientTest {
 
         ProviderChainClient chain = new ProviderChainClient(
             List.of(deadHead, backup), null, 1);
+        long startNanos2 = System.nanoTime();
 
         assertEquals("backup", sendAndGet(chain).getProviderId()); // failover
-        Thread.sleep(1100);                                        // cooldown lapses
+        awaitCooldownElapsed(startNanos2, 1100);
         LLMResponse response = sendAndGet(chain);                  // probe throws -> backup serves
 
         assertEquals("backup", response.getProviderId(),
