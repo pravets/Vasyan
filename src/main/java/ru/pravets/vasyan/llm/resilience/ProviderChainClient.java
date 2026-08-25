@@ -123,6 +123,21 @@ public class ProviderChainClient implements AsyncLLMClient {
                         LOGGER.info("[chain] head provider '{}' recovered, failing back", head.getProviderId());
                         notifySwitch(head.getProviderId(), true, switched);
                         return CompletableFuture.completedFuture(response);
+                    })
+                    .exceptionally(throwable -> {
+                        // Probe itself threw (network error etc.): same-request
+                        // fallback must still proceed to the active backup.
+                        markFailure(0);
+                        LOGGER.debug("[chain] recovery probe of '{}' threw: {}",
+                            head.getProviderId(),
+                            throwable instanceof java.util.concurrent.CompletionException ce && ce.getCause() != null
+                                ? ce.getCause().getMessage()
+                                : throwable.getMessage());
+                        try {
+                            return walk(prompt, params, startIndex).get();
+                        } catch (Exception e) {
+                            throw new java.util.concurrent.CompletionException(e);
+                        }
                     });
             }
             // Lost the race: serve via the normal walk.

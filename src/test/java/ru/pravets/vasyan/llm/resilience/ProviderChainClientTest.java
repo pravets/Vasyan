@@ -184,6 +184,25 @@ class ProviderChainClientTest {
     }
 
     @Test
+    void exceptionalRecoveryProbeFallsBackToBackupWithinSameRequest() throws Exception {
+        // Head threw during the recovery probe -> the same request must still
+        // be served by the active backup, not complete exceptionally.
+        AlwaysDeadMember deadHead = new AlwaysDeadMember("dead");
+        FakeMember backup = new FakeMember("backup");
+
+        ProviderChainClient chain = new ProviderChainClient(
+            List.of(deadHead, backup), null, 1);
+
+        assertEquals("backup", sendAndGet(chain).getProviderId()); // failover
+        Thread.sleep(1100);                                        // cooldown lapses
+        LLMResponse response = sendAndGet(chain);                  // probe throws -> backup serves
+
+        assertEquals("backup", response.getProviderId(),
+            "exceptional probe must not fail the request; backup answers");
+        assertTrue(deadHead.attempts >= 2, "head was probed again after cooldown");
+    }
+
+    @Test
     void healthyActiveMemberIsNotSwitchedAwayFrom() throws Exception {
         FakeMember head = new FakeMember("head");
         FakeMember backup = new FakeMember("backup");

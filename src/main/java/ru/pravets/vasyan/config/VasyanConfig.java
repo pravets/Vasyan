@@ -26,8 +26,12 @@ public class VasyanConfig {
                 return;
             }
             var parser = new com.electronwill.nightconfig.toml.TomlParser();
-            // Parse errors propagate here as ParsingException.
-            parser.parse(java.nio.file.Files.newBufferedReader(file));
+            // Parse errors propagate here as ParsingException. The Reader is
+            // closed BEFORE any Files.move in the catch block - an open handle
+            // would block the rename on Windows.
+            try (var reader = java.nio.file.Files.newBufferedReader(file)) {
+                parser.parse(reader);
+            }
         } catch (Exception parseFailure) {
             try {
                 java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
