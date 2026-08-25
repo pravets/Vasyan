@@ -138,7 +138,9 @@ class PathMonitorTest {
             assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, true, false, true, true),
                     "navDone replan #" + (i + 1) + " fires after the full stall window");
         }
-        for (int t = 0; t < 40; t++) {
+        // The 11th window ends in GIVE_UP (navDoneReplans exhausted): 39 paced
+        // CONTINUEs, then GIVE_UP instead of an 11th replan.
+        for (int t = 1; t < 40; t++) {
             assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true));
         }
         assertEquals(PathMonitor.Decision.GIVE_UP, m.onTick(BOT, true, false, true, true),
@@ -151,7 +153,7 @@ class PathMonitorTest {
         var m = monitor(40, 3);
 
         for (int i = 0; i < 5; i++) {
-            for (int t = 0; t < 40; t++) {
+            for (int t = 1; t < 40; t++) {
                 assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true));
             }
             assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, true, false, true, true));
