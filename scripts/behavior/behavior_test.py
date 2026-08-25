@@ -565,9 +565,11 @@ def test_pathfinding_scenarios(workdir, jar_path):
         print(f"  -> crossed river to ({target_ax}, {PLAT_Y + 1}, {wz}) without teleporting")
 
         # ---- B) Adjacent stand ----
-        print("Scenario B: adjacent stand beside obsidian...")
+        print("Scenario B: approach obsidian...")
         # Ahead of the river crossing (bot is now at ~wx+14): obsidian to the
         # south-east so the approach does not re-cross the water channel.
+        # NOTE: the deterministic goto drives GoalNear(target, 2) (PathfindAction),
+        # so the assertion is Chebyshev<=2 AND not standing on top of the block.
         block_b = (wx + 18, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
         reached, teleported, dug, pretrigger_fired = goto(block_b[0], block_b[1], block_b[2], 120)
@@ -575,12 +577,12 @@ def test_pathfinding_scenarios(workdir, jar_path):
         if not pos:
             print("  [FAIL] adjacent stand: could not read bot position")
             return 1
-        manhattan_xz = abs(pos[0] - block_b[0]) + abs(pos[2] - block_b[2])
-        same_y = pos[1] == block_b[1]
-        if manhattan_xz != 1 or not same_y:
-            print(f"  [FAIL] adjacent stand: pos={pos}, manhattan_xz={manhattan_xz}, same_y={same_y}")
+        chebyshev = max(abs(pos[0] - block_b[0]), abs(pos[2] - block_b[2]))
+        on_top = pos[1] > block_b[1]
+        if chebyshev > 2 or on_top:
+            print(f"  [FAIL] adjacent stand: pos={pos}, chebyshev={chebyshev}, on_top={on_top}")
             return 1
-        print(f"  -> stands adjacent (side) to obsidian at {pos}")
+        print(f"  -> approached obsidian at {pos} (chebyshev={chebyshev})")
 
         # ---- C) Wall dig-through ----
         print("Scenario C: dig through dirt wall...")
