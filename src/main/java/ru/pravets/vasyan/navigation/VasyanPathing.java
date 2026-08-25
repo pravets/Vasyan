@@ -295,18 +295,41 @@ public final class VasyanPathing {
     }
 
     /**
-     * First breakable obstruction directly ahead - foot level, then head level - or
-     * {@code null} when the way is clear or nothing may be broken.
+     * First breakable obstruction between the bot and the goal anchor - foot level, then head
+     * level - or {@code null} when the way is clear or nothing may be broken.
+     *
+     * <p>When navigation is done and the bot is pressed against an obstacle, its rounded
+     * position can already be INSIDE the obstacle's column (x=148.6 rounds to 149, the wall
+     * cell), so a single "one cell ahead" probe would look past the wall at clear air. Instead,
+     * scan along the goal direction for up to 2 cells (own cell included), foot level first.</p>
      */
     @Nullable
     private static BlockPos findDiggableAhead(VasyanEntity vasyan, VasyanGoal goal) {
-        BlockPos ahead = aheadPosition(vasyan, goal);
         Level level = vasyan.level();
-        if (isBreakable(level, ahead)) {
-            return ahead;
+        BlockPos target = resolveTarget(goal, vasyan.blockPosition());
+        int dx = Integer.compare(target.getX(), vasyan.blockPosition().getX());
+        int dz = Integer.compare(target.getZ(), vasyan.blockPosition().getZ());
+        net.minecraft.core.Direction dir;
+        int absDx = Math.abs(target.getX() - vasyan.blockPosition().getX());
+        int absDz = Math.abs(target.getZ() - vasyan.blockPosition().getZ());
+        if (dx != 0 && (absDx >= absDz || dz == 0)) {
+            dir = dx > 0 ? net.minecraft.core.Direction.EAST : net.minecraft.core.Direction.WEST;
+        } else if (dz != 0) {
+            dir = dz > 0 ? net.minecraft.core.Direction.SOUTH : net.minecraft.core.Direction.NORTH;
+        } else {
+            dir = vasyan.getDirection();
         }
-        BlockPos head = ahead.above();
-        return isBreakable(level, head) ? head : null;
+        BlockPos cursor = vasyan.blockPosition();
+        for (int step = 0; step <= 2; step++) {
+            if (isBreakable(level, cursor)) {
+                return cursor;
+            }
+            if (isBreakable(level, cursor.above())) {
+                return cursor.above();
+            }
+            cursor = cursor.relative(dir);
+        }
+        return null;
     }
 
     /** Whether the block at {@code pos} is a real obstacle the bot may break. */
