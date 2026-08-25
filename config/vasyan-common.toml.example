@@ -2,7 +2,8 @@
 # All providers speak the OpenAI-compatible Chat Completions API.
 
 [llm]
-# Active provider: openai | groq | gemini | ollama | lmstudio | opencode-go | custom
+# Active provider: openai | groq | gemini | deepseek | ollama | lmstudio |
+# opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom
 provider = "ollama"
 
 # Provider failover chain, in priority order. Empty = single-provider mode.

@@ -14,6 +14,29 @@
 # apiKey = "your-opencode-zen-key"
 # model = "deepseek-v4-pro"
 #
+# Preset providers need only their key/model - baseUrl comes from the preset:
+#
+# [deepseek]
+# apiKey = "sk-..."
+# model = "deepseek-v4-flash"
+# (preset baseUrl: https://api.deepseek.com)
+#
+# [routerai]
+# apiKey = "..."
+# baseUrl = "https://routerai.ru/api/v1"   # preset default, can be omitted
+#
+# [cloud-ru-fm]
+# apiKey = "..."        # Foundation Models service by cloud.ru
+# preset baseUrl: https://foundation-models.api.cloud.ru/v1
+#
+# [selectel-router]
+# apiKey = "..."        # AI router by Selectel
+# preset baseUrl: https://api.selectel.ru/aig/v1
+#
+# [tokenra]
+# apiKey = "..."
+# preset baseUrl: https://tokenra.io/v1/
+#
 # [my-own-endpoint]           # arbitrary name, use it in providerChain as-is
 # baseUrl = "https://llm.example.com/v1"
 # apiKey = "sk-..."
