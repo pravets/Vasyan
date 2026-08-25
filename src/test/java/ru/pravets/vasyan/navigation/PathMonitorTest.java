@@ -279,13 +279,17 @@ class PathMonitorTest {
     void stationaryBotStillStalls_AfterMovingWindowCloses() {
         var m = monitor(40, 3);
 
-        // Move a bit (progress), then stop: stall accumulation starts only once
-        // the bot is stationary again.
-        assertEquals(PathMonitor.Decision.CONTINUE,
-            m.onTick(new BlockPos(1, 64, 0), false, true, true, true));
-        for (int i = 1; i < 40; i++) {
-            assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, false, true, true, true));
+        // Advance monotonically (progress), then stop: stall accumulation starts
+        // only once the bot stays in one cell.
+        for (int x = 1; x <= 5; x++) {
+            assertEquals(PathMonitor.Decision.CONTINUE,
+                m.onTick(new BlockPos(x, 64, 0), false, true, true, true), "move at x=" + x);
         }
-        assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, false, true, true, true));
+        for (int i = 1; i < 40; i++) {
+            assertEquals(PathMonitor.Decision.CONTINUE,
+                m.onTick(new BlockPos(5, 64, 0), false, true, true, true), "halt tick " + i);
+        }
+        assertEquals(PathMonitor.Decision.REPLAN,
+            m.onTick(new BlockPos(5, 64, 0), false, true, true, true));
     }
 }
