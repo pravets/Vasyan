@@ -528,6 +528,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         def goto(tx, ty, tz, timeout_s, forbid_teleport=False, forbid_dig=False):
             offset_before = os.path.getsize(log_path)
             resp = rcon.command(f"vasyan tell Navigator иди к {tx} {ty} {tz}")
+            print(f"  tell response: {resp!r}")
             # sendSuccess for RCON returns in the command response: the
             # pre-trigger answers '<name> идёт к ...', the LLM path answers
             # with a fallback plan or empty string.
