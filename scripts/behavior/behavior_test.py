@@ -541,12 +541,12 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- A) River crossing ----
         print("Scenario A: river crossing...")
-        # Channel across the path, 4 wide (X +6..+9), spanning the platform.
-        # Floor at PLAT_Y becomes water surface; bot swims across it.
-        rcon.command(f"fill {wx + 6} {PLAT_Y} {wz - 13} {wx + 9} {PLAT_Y} {wz + 13} minecraft:water")
+        # A real river: channel floor 2 blocks below the platform, filled with
+        # water up to the platform level, so the bot must swim across.
+        rcon.command(f"fill {wx + 6} {PLAT_Y - 2} {wz - 13} {wx + 9} {PLAT_Y} {wz + 13} minecraft:water")
         rcon.command(f"fill {wx + 6} {PLAT_Y + 1} {wz - 13} {wx + 9} {PLAT_Y + 4} {wz + 13} minecraft:air")
         target_ax = wx + 14
-        reached, teleported, dug = goto(target_ax, PLAT_Y + 1, wz, 180)
+        reached, teleported, dug = goto(target_ax, PLAT_Y + 1, wz, 240)
         if not reached:
             print("  [FAIL] river crossing: bot did not reach the far side in time")
             return 1
