@@ -32,6 +32,8 @@ public class PathfindAction extends BaseAction {
     private VasyanGoal goal;
     private PathMonitor monitor;
     private PathBudgets budgets;
+    /** Set once the bot visibly starts moving: planning has succeeded. */
+    private BlockPos firstPosition;
 
     public PathfindAction(VasyanEntity vasyan, Task task) {
         super(vasyan, task);
@@ -67,12 +69,19 @@ public class PathfindAction extends BaseAction {
     @Override
     protected void onTick() {
         long nowNano = System.nanoTime();
-        // The think budget bounds a single PATH PLANNING attempt (a path that is
-        // being followed too long), not recovery: the monitor's fallback ladder
-        // (paced replans + dig/scaffold/teleport) legitimately takes minutes and
-        // terminates itself with finished()==true when exhausted.
-        boolean hasPath = !vasyan.getNavigation().isDone();
-        if (budgets.thinkExpired(nowNano) && hasPath) {
+        // The think budget bounds PLANNING: the time between the action start and
+        // the bot visibly starting to move. Once the bot moves, the monitor's own
+        // budgets (stall windows, paced replans, ladder) govern the rest - a long
+        // walk or recovery is not a planning failure.
+        BlockPos current = vasyan.blockPosition();
+        if (firstPosition == null) {
+            firstPosition = current;
+        }
+        boolean everMoved = !current.equals(firstPosition);
+        if (budgets.thinkExpired(nowNano) && !everMoved && !monitor.inLadderRecovery()) {
+            ru.pravets.vasyan.VasyanMod.LOGGER.info(
+                "Vasyan '{}': pathfind budget exhausted before any movement",
+                vasyan.getVasyanName());
             result = ActionResult.failure("Pathfinding budget exhausted (think timeout)");
             return;
         }
