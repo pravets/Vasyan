@@ -182,9 +182,27 @@ public class TaskPlanner {
                 String memberModel = firstNonEmpty(
                     fileSettings != null ? fileSettings.model() : null,
                     firstNonEmpty(section.model().get(), VasyanConfig.LLM_MODEL.get()));
-                String memberBaseUrl = firstNonEmpty(
-                    fileSettings != null ? fileSettings.baseUrl() : null,
-                    firstNonEmpty(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get()));
+                // Base URL: for presets (tokenra, opencode-go, ...) skip the shared
+                // llm.baseUrl — the preset already has the correct URL. Shared
+                // llm.baseUrl is only meaningful for the 'custom' provider which
+                // has no preset default. This prevents e.g. llm.baseUrl being
+                // set to selectel.ru from poisoning tokenra's resolution.
+                String memberBaseUrl;
+                String presetDefault = presetId ? LLMProviders.get(id).baseUrl() : "";
+                if (presetDefault != null && !presetDefault.isBlank()) {
+                    // Preset knows its URL — skip shared, use override > preset.
+                    memberBaseUrl = firstNonEmpty(
+                        fileSettings != null ? fileSettings.baseUrl() : null,
+                        section.baseUrl().get());
+                    if (memberBaseUrl == null || memberBaseUrl.isBlank()) {
+                        memberBaseUrl = presetDefault;
+                    }
+                } else {
+                    // Custom / no preset default — fall through to shared.
+                    memberBaseUrl = firstNonEmpty(
+                        fileSettings != null ? fileSettings.baseUrl() : null,
+                        firstNonEmpty(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get()));
+                }
 
                 OpenAICompatibleClient base = OpenAICompatibleClient.forProvider(
                     id,

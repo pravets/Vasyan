@@ -173,7 +173,12 @@ public class VasyanCommands {
         VasyanManager manager = VasyanMod.getVasyanManager();
 
         String provider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
-        String base = LLMProviders.resolveBaseUrl(provider, VasyanConfig.LLM_BASE_URL.get());
+        String base;
+        try {
+            base = LLMProviders.resolveBaseUrl(provider, VasyanConfig.LLM_BASE_URL.get());
+        } catch (Exception e) {
+            base = "(not configured)";
+        }
         String model = VasyanConfig.LLM_MODEL.get();
         if (model == null || model.isEmpty()) {
             model = LLMProviders.resolveModel(provider, "");
@@ -246,7 +251,12 @@ public class VasyanCommands {
         // otherwise the status would show a different endpoint than requests
         // actually use.
         var memberSection = chain != null ? TaskPlanner.memberSection(activeProvider) : null;
-        String sharedBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
+        String sharedBase;
+        try {
+            sharedBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
+        } catch (Exception e) {
+            sharedBase = "(not configured)";
+        }
         String effectiveBase = firstNonBlank(
             memberSection != null ? memberSection.baseUrl().get() : null, sharedBase);
         String sharedModelRaw = VasyanConfig.LLM_MODEL.get();

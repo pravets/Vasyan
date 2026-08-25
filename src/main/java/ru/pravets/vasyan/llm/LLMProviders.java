@@ -81,8 +81,10 @@ public final class LLMProviders {
         }
         String presetBase = get(providerId).baseUrl();
         if (presetBase == null || presetBase.isEmpty()) {
-            throw new IllegalArgumentException(
-                "No base URL for provider '" + providerId + "'. Set llm.baseUrl in the config.");
+            // custom provider has no preset URL — caller must provide one
+            // via llm.baseUrl or vasyan-llm-members.toml. Return empty
+            // instead of throwing to avoid crashes in status commands.
+            return "";
         }
         return presetBase;
     }
