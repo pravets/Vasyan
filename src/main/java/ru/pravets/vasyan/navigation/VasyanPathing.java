@@ -120,6 +120,14 @@ public final class VasyanPathing {
         boolean canDig = diggable != null;
         boolean canPlace = findScaffoldStack(vasyan) != null;
 
+        // Temporary diagnostics for behavior scenario C (wall dig-through).
+        if (vasyan.tickCount % 40 == 0) {
+            VasyanMod.LOGGER.info("Vasyan '{}': nav diag pos={} navDone={} canDig={} canPlace={} "
+                    + "diggable={} recovering={}",
+                vasyan.getVasyanName(), vasyan.blockPosition(), navDone, canDig, canPlace,
+                diggable, monitor.inLadderRecovery());
+        }
+
         // Contract: hasPath == "path currently assigned" == !navDone.
         PathMonitor.Decision decision =
             monitor.onTick(vasyan.blockPosition(), navDone, !navDone, canDig, canPlace);
