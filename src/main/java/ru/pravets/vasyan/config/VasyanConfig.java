@@ -69,6 +69,7 @@ public class VasyanConfig {
     public static final MemberSection MEMBER_OPENCODE_GO;
     public static final MemberSection MEMBER_DEEPSEEK;
     public static final MemberSection MEMBER_OPENROUTER;
+    public static final MemberSection MEMBER_NEURALDEEP;
     public static final MemberSection MEMBER_ROUTERAI;
     public static final MemberSection MEMBER_CLOUD_RU_FM;
     public static final MemberSection MEMBER_SELECTEL_ROUTER;
@@ -105,7 +106,7 @@ public class VasyanConfig {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
 
         builder.comment("LLM provider configuration. All providers use the OpenAI-compatible Chat Completions API.",
-            "provider: openai | groq | gemini | deepseek | openrouter | ollama | lmstudio | opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom",
+            "provider: openai | groq | gemini | deepseek | openrouter | neuraldeep | ollama | lmstudio | opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom",
             "  ollama     -> http://127.0.0.1:11434/v1 (no key needed)",
             "  lmstudio   -> http://127.0.0.1:1234/v1 (no key needed)",
             "  opencode-go-> https://opencode.ai/zen/go/v1 (key from OpenCode Zen, models like deepseek-v4-flash)",
@@ -157,6 +158,7 @@ public class VasyanConfig {
         MEMBER_OPENCODE_GO = MemberSection.define(builder, LLMProviders.OPENCODE_GO);
         MEMBER_DEEPSEEK = MemberSection.define(builder, LLMProviders.DEEPSEEK);
         MEMBER_OPENROUTER = MemberSection.define(builder, LLMProviders.OPENROUTER);
+        MEMBER_NEURALDEEP = MemberSection.define(builder, LLMProviders.NEURALDEEP);
         MEMBER_ROUTERAI = MemberSection.define(builder, LLMProviders.ROUTERAI);
         MEMBER_CLOUD_RU_FM = MemberSection.define(builder, LLMProviders.CLOUD_RU_FM);
         MEMBER_SELECTEL_ROUTER = MemberSection.define(builder, LLMProviders.SELECTEL_ROUTER);

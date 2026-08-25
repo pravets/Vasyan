@@ -19,6 +19,7 @@ public final class LLMProviders {
     public static final String OPENCODE_GO = "opencode-go";
     public static final String DEEPSEEK = "deepseek";
     public static final String OPENROUTER = "openrouter";
+    public static final String NEURALDEEP = "neuraldeep";
     public static final String ROUTERAI = "routerai";
     public static final String CLOUD_RU_FM = "cloud-ru-fm";
     public static final String SELECTEL_ROUTER = "selectel-router";
@@ -36,6 +37,7 @@ Map.entry(LMSTUDIO, new Preset("http://127.0.0.1:1234/v1", "", false)),
 Map.entry(OPENCODE_GO, new Preset("https://opencode.ai/zen/go/v1", "deepseek-v4-flash", true)),
 Map.entry(DEEPSEEK, new Preset("https://api.deepseek.com", "deepseek-v4-flash", true)),
         Map.entry(OPENROUTER, new Preset("https://openrouter.ai/api/v1", "", true)),
+        Map.entry(NEURALDEEP, new Preset("https://api.neuraldeep.ru/v1", "", true)),
 Map.entry(ROUTERAI, new Preset("https://routerai.ru/api/v1", "", true)),
 Map.entry(CLOUD_RU_FM, new Preset("https://foundation-models.api.cloud.ru/v1", "", true)),
 Map.entry(SELECTEL_ROUTER, new Preset("https://api.selectel.ru/aig/v1", "", true)),
