@@ -591,8 +591,13 @@ def test_pathfinding_scenarios(workdir, jar_path):
         wall_x = wx + 26
         fill_resp = rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 14} {wall_x} {PLAT_Y + 3} {wz + 14} minecraft:dirt")
         print(f"  wall fill response: {fill_resp!r}")
-        block_check = rcon.command(f"data get block {wall_x} {PLAT_Y + 1} {wz} Name")
+        # NOTE: 'data get block' answers only for block entities; for plain
+        # blocks use 'execute if block'. Long/odd responses can desync the RCON
+        # terminator stream, so re-sync with a trivial command afterwards.
+        block_check = rcon.command(f"execute if block {wall_x} {PLAT_Y + 1} {wz} minecraft:dirt run say WALL_OK")
         print(f"  wall block check: {block_check!r}")
+        time.sleep(1)
+        rcon.command("list")  # cheap resync probe
         # Diagnose the paradox: bot_pos lands INSIDE the wall column without digs.
         time.sleep(3)
         pos_before = bot_pos()
