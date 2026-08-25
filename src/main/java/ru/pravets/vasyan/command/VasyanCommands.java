@@ -15,6 +15,7 @@ import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.entity.VasyanManager;
 import ru.pravets.vasyan.llm.LLMProviders;
 import ru.pravets.vasyan.llm.TaskPlanner;
+import ru.pravets.vasyan.llm.async.AsyncLLMClient;
 import ru.pravets.vasyan.llm.async.OpenAICompatibleClient;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -172,20 +173,14 @@ public class VasyanCommands {
         CommandSourceStack source = context.getSource();
         VasyanManager manager = VasyanMod.getVasyanManager();
 
-        String provider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
-        String base;
-        try {
-            base = LLMProviders.resolveBaseUrl(provider, VasyanConfig.LLM_BASE_URL.get());
-        } catch (Exception e) {
-            base = "(not configured)";
-        }
-        String model = VasyanConfig.LLM_MODEL.get();
-        if (model == null || model.isEmpty()) {
-            model = LLMProviders.resolveModel(provider, "");
-        }
-        String key = VasyanConfig.LLM_API_KEY.get();
-        boolean keyPresent = key != null && !key.isEmpty();
-        boolean jsonMode = VasyanConfig.LLM_JSON_MODE.get();
+        var planner = TaskPlanner.getInstance();
+        String provider = planner.getActiveProvider();
+        String base = planner.getActiveBaseUrl();
+        String model = planner.getActiveModel();
+        boolean keyPresent = !LLMProviders.isValid(provider)
+            || !LLMProviders.requiresKey(provider)
+            || !VasyanConfig.memberApiKeyOf(provider).isBlank();
+        boolean jsonMode = VasyanConfig.JSON_MODE.get();
         String llmLine = "§eLLM: §f" + provider + "§7 (" + base + ") model=" + model
             + " key=" + (keyPresent ? "§aset" : "§cmissing")
             + " jsonMode=" + jsonMode;
@@ -193,19 +188,10 @@ public class VasyanCommands {
         source.sendSuccess(() -> Component.literal(llmLine), false);
 
         // Provider health (async, 3s timeout)
-        String providerId = provider;
-        String baseUrl = base;
-        String apiKey = VasyanConfig.LLM_API_KEY.get();
-        String modelOverride = VasyanConfig.LLM_MODEL.get();
         HEALTH_CHECK_EXECUTOR.execute(() -> {
             try {
-                OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
-                    providerId, baseUrl, apiKey, modelOverride,
-                    VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),
-                    VasyanConfig.LLM_JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
                 source.sendSuccess(() -> Component.literal(
-                    "§eHealth: §f" + (client.checkHealth() ? "§aONLINE" : "§cUNREACHABLE")
-                        + "§7 (GET " + baseUrl + "/models)"), false);
+                    "§eHealth: §f" + (planner.pingProvider() ? "§aONLINE" : "§cUNREACHABLE")), false);
             } catch (Exception e) {
                 source.sendSuccess(() -> Component.literal("§cHealth check error: " + e.getMessage()), false);
             }
@@ -235,44 +221,31 @@ public class VasyanCommands {
     private static int listProviders(CommandContext<CommandSourceStack> context) {
         CommandSourceStack source = context.getSource();
 
-        String configuredProvider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
+        var planner = TaskPlanner.getInstance();
         ru.pravets.vasyan.llm.resilience.ProviderChainClient chain =
-            TaskPlanner.getInstance().getProviderChain();
+            planner.getProviderChain();
         String activeProvider = chain != null
             ? chain.getActiveProviderId()
-            : configuredProvider;
-        boolean failedOver = chain != null && !activeProvider.equals(
-            chain.getMembers().get(0).getProviderId());
+            : "(chain not configured)";
 
-        // Effective settings of the ACTIVE member. In chain mode the same
-        // resolution applies as in TaskPlanner (member section -> shared llm.*
-        // -> preset). In SINGLE-PROVIDER mode TaskPlanner uses ONLY shared
-        // llm.* values, so member sections must NOT be consulted here -
-        // otherwise the status would show a different endpoint than requests
-        // actually use.
-        var memberSection = chain != null ? TaskPlanner.memberSection(activeProvider) : null;
-        String sharedBase;
-        try {
-            sharedBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
-        } catch (Exception e) {
-            sharedBase = "(not configured)";
+        // Effective settings of the ACTIVE member - straight from its client,
+        // which is exactly what real requests use. No separate resolution here:
+        // single source of truth is TaskPlanner's buildMembers.
+        String effectiveBase;
+        String effectiveModel;
+        if (chain != null) {
+            AsyncLLMClient activeClient = chain.getMembers().get(chain.getActiveIndex());
+            OpenAICompatibleClient delegate = TaskPlanner.httpDelegateOf(activeClient);
+            effectiveBase = delegate != null ? delegate.getBaseUrl()
+                : LLMProviders.resolveBaseUrl(activeProvider, "");
+            effectiveModel = delegate != null ? delegate.getModel()
+                : LLMProviders.resolveModel(activeProvider, "");
+        } else {
+            effectiveBase = "(not configured)";
+            effectiveModel = "";
         }
-        String effectiveBase = firstNonBlank(
-            memberSection != null ? memberSection.baseUrl().get() : null, sharedBase);
-        String sharedModelRaw = VasyanConfig.LLM_MODEL.get();
-        String sharedModel = sharedModelRaw != null && !sharedModelRaw.isEmpty()
-            ? sharedModelRaw : LLMProviders.resolveModel(activeProvider, "");
-        String effectiveModel = firstNonBlank(
-            memberSection != null ? memberSection.model().get() : null, sharedModel);
-        String key = VasyanConfig.LLM_API_KEY.get();
-        String effectiveKey = firstNonBlank(
-            memberSection != null ? memberSection.apiKey().get() : null, key);
-        boolean keyPresent = effectiveKey != null && !effectiveKey.isEmpty();
-
-        source.sendSuccess(() -> Component.literal(
-            "§eActive provider: §f" + activeProvider
-                + (failedOver ? "§7 (failed over from §f" + chain.getMembers().get(0).getProviderId() + "§7)" : "")
-                + " §7(" + effectiveBase + ")"), false);
+        boolean keyPresent = chain != null
+            && !VasyanConfig.memberApiKeyOf(chain.getActiveProviderId()).isBlank();
 
         // Configured chain with per-member circuit breaker state.
         if (chain != null) {
@@ -305,7 +278,7 @@ public class VasyanCommands {
 
         // Model/key line for the ACTIVE provider.
         String modelLine;
-        if (LLMProviders.CUSTOM.equals(activeProvider)) {
+        if (!LLMProviders.isValid(activeProvider) || LLMProviders.CUSTOM.equals(activeProvider)) {
             // Custom endpoint may or may not need a key - depends on the server.
             modelLine = "§eModel: §f" + effectiveModel + "§7 | key: §7optional";
         } else if (!LLMProviders.requiresKey(activeProvider)) {
@@ -319,27 +292,24 @@ public class VasyanCommands {
         // Live health check of EVERY member of the chain, not just the head
         // (GET /models, 3s timeout each; an unreachable /models such as some
         // ollama setups must not fail the whole chain's health view).
-        List<String> memberIds = chain != null
-            ? chain.getMembers().stream().map(m -> m.getProviderId()).toList()
-            : List.of(configuredProvider);
+        if (chain == null) {
+            return 1; // nothing else to show
+        }
         HEALTH_CHECK_EXECUTOR.execute(() -> {
-            for (String memberId : memberIds) {
+            for (var memberClient : chain.getMembers()) {
+                String memberId = memberClient.getProviderId();
                 try {
-                    // Per-member overrides first ([llm.members.<id>]), then the
-                    // shared llm.* values - same resolution as TaskPlanner uses.
-                    // In single-provider mode there is no chain client built from
-                    // member sections, so skip them to match real request routing.
-                    var section = chain != null ? TaskPlanner.memberSection(memberId) : null;
+                    // Same resolution as buildMembers: [llm.members.<id>] then preset.
+                    var section = TaskPlanner.memberSection(memberId);
                     String memberBase = LLMProviders.resolveBaseUrl(memberId,
-                        firstNonBlank(section != null ? section.baseUrl().get() : null,
-                            VasyanConfig.LLM_BASE_URL.get()));
-                    String memberKey = firstNonBlank(section != null ? section.apiKey().get() : null, key);
-                    String memberModel = firstNonBlank(section != null ? section.model().get() : null,
-                        VasyanConfig.LLM_MODEL.get());
+                        section.baseUrl().get());
+                    String memberKey = section.apiKey().get();
+                    String memberModel = LLMProviders.resolveModel(memberId,
+                        section.model().get());
                     OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
                         memberId, memberBase, memberKey, memberModel,
                         VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),
-                        VasyanConfig.LLM_JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
+                        VasyanConfig.JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
                     boolean healthy = client.checkHealth();
                     String healthUrl = memberBase.endsWith("/") ? memberBase + "models" : memberBase + "/models";
                     source.sendSuccess(() -> Component.literal(

@@ -8,6 +8,35 @@ import java.util.List;
 public class VasyanConfig {
 
     /**
+     * API key configured for a chain member id via its
+     * {@code [llm.members.<id>]} section. Unknown ids return "".
+     */
+    public static String memberApiKeyOf(String id) {
+        var s = memberSectionById(id);
+        return s == null ? "" : s.apiKey().get();
+    }
+
+    private static MemberSection memberSectionById(String id) {
+        return switch (id == null ? "" : id.toLowerCase(java.util.Locale.ROOT)) {
+            case "openai" -> MEMBER_OPENAI;
+            case "groq" -> MEMBER_GROQ;
+            case "gemini" -> MEMBER_GEMINI;
+            case "ollama" -> MEMBER_OLLAMA;
+            case "lmstudio" -> MEMBER_LMSTUDIO;
+            case "opencode-go" -> MEMBER_OPENCODE_GO;
+            case "deepseek" -> MEMBER_DEEPSEEK;
+            case "openrouter" -> MEMBER_OPENROUTER;
+            case "neuraldeep" -> MEMBER_NEURALDEEP;
+            case "routerai" -> MEMBER_ROUTERAI;
+            case "cloud-ru-fm" -> MEMBER_CLOUD_RU_FM;
+            case "selectel-router" -> MEMBER_SELECTEL_ROUTER;
+            case "tokenra" -> MEMBER_TOKENRA;
+            case "custom" -> MEMBER_CUSTOM;
+            default -> null;
+        };
+    }
+
+    /**
      * Pre-flight check: parse the user's config file BEFORE Forge does. A
      * syntactically broken file (e.g. unquoted strings in providerChain)
      * would otherwise throw ConfigLoadingException during mod loading and
@@ -58,14 +87,15 @@ public class VasyanConfig {
     }
 
     public static final ForgeConfigSpec SPEC;
-    public static final ForgeConfigSpec.ConfigValue<String> AI_PROVIDER;
     /**
      * Ordered failover chain of LLM providers (highest priority first).
-     * Empty = single-provider mode via {@link #AI_PROVIDER}.
+     * Every id MUST be one of the {@link LLMProviders} presets; per-member
+     * settings live in {@code [llm.members.<id>]} sections below.
      */
     public static final ForgeConfigSpec.ConfigValue<List<? extends String>> PROVIDER_CHAIN;
     /** Seconds before the chain retries the head provider after a failover. */
     public static final ForgeConfigSpec.IntValue FAILOVER_RETRY_SECONDS;
+    public static final ForgeConfigSpec.BooleanValue JSON_MODE;
     public static final MemberSection MEMBER_OPENAI;
     public static final MemberSection MEMBER_GROQ;
     public static final MemberSection MEMBER_GEMINI;
@@ -80,10 +110,6 @@ public class VasyanConfig {
     public static final MemberSection MEMBER_SELECTEL_ROUTER;
     public static final MemberSection MEMBER_TOKENRA;
     public static final MemberSection MEMBER_CUSTOM;
-    public static final ForgeConfigSpec.ConfigValue<String> LLM_BASE_URL;
-    public static final ForgeConfigSpec.ConfigValue<String> LLM_API_KEY;
-    public static final ForgeConfigSpec.ConfigValue<String> LLM_MODEL;
-    public static final ForgeConfigSpec.BooleanValue LLM_JSON_MODE;
     public static final ForgeConfigSpec.IntValue MAX_TOKENS;
     public static final ForgeConfigSpec.DoubleValue TEMPERATURE;
     public static final ForgeConfigSpec.IntValue LLM_TIMEOUT_SECONDS;
@@ -110,30 +136,23 @@ public class VasyanConfig {
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
 
-        builder.comment("LLM provider configuration. All providers use the OpenAI-compatible Chat Completions API.",
-            "provider: openai | groq | gemini | deepseek | openrouter | neuraldeep | ollama | lmstudio | opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom",
-            "  ollama     -> http://127.0.0.1:11434/v1 (no key needed)",
-            "  lmstudio   -> http://127.0.0.1:1234/v1 (no key needed)",
-            "  opencode-go-> https://opencode.ai/zen/go/v1 (key from OpenCode Zen, models like deepseek-v4-flash)",
-            "  custom     -> any OpenAI-compatible endpoint, baseUrl is required")
+        builder.comment("LLM configuration. All providers use the OpenAI-compatible Chat Completions API.",
+            "providerChain lists provider ids in priority order:",
+            "  openai | groq | gemini | deepseek | openrouter | neuraldeep | ollama | lmstudio |",
+            "  opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom",
+            "Preset base URLs apply automatically; keys/models go to [llm.members.<id>].")
             .push("llm");
 
-        AI_PROVIDER = builder
-            .comment("Active LLM provider")
-            .define("provider", "ollama");
-
         PROVIDER_CHAIN = builder
-            .comment("Provider failover chain, in priority order. Example:",
+            .comment("LLM providers in priority order (failover chain). Example:",
                 "  providerChain = [\"opencode-go\", \"ollama\"]",
-                "If a request to the active provider fails, the next provider in this",
-                "list is tried within the SAME request. When the head (highest-priority)",
-                "provider recovers, traffic automatically fails back after",
-                "failoverRetrySeconds. Empty or missing = single-provider mode using",
-                "'provider' only (backward compatible). Unknown ids are skipped with a",
-                "warning; duplicates are removed.",
-                "Per-member settings (apiKey/model/baseUrl) live in the [llm.members.<id>]",
-                "sections below; unset fields fall back to the presets or the shared",
-                "llm.* values.")
+                "Every id must be a preset: openai | groq | gemini | deepseek | openrouter |",
+                "neuraldeep | ollama | lmstudio | opencode-go | routerai | cloud-ru-fm |",
+                "selectel-router | tokenra | custom. One entry = single provider, no failover.",
+                "If a request to the active provider fails, the next one is tried within the",
+                "SAME request; when the head recovers, traffic fails back after",
+                "failoverRetrySeconds. Keys/models/baseUrls are set per member in the",
+                "[llm.members.<id>] sections below - preset defaults apply when unset.")
             .defineListAllowEmpty("providerChain", java.util.Collections::<String>emptyList,
                 o -> o instanceof String s && !s.isBlank());
 
@@ -143,10 +162,10 @@ public class VasyanConfig {
                 "Also throttles recovery probes so a dead head is not hammered.")
             .defineInRange("failoverRetrySeconds", 60, 5, 3600);
 
-        builder.comment("Per-provider overrides for providerChain members.",
-                "Each section only needs the fields that differ from the defaults:",
-                "unset/empty fields fall back to the preset default or the shared",
-                "llm.baseUrl / llm.apiKey / llm.model values.",
+        builder.comment("Per-provider settings for providerChain members.",
+                "Each section only needs the fields that differ from the preset default:",
+                "unset/empty fields fall back to the preset (baseUrl/defaultModel);",
+                "apiKey has no preset and must be set here for key-requiring providers.",
                 "Example:",
                 "  [llm.members.opencode-go]",
                 "  apiKey = \"zen-key-123\"",
@@ -171,21 +190,7 @@ public class VasyanConfig {
         MEMBER_CUSTOM = MemberSection.define(builder, LLMProviders.CUSTOM);
         builder.pop();
 
-        LLM_BASE_URL = builder
-            .comment("Base URL override. Empty = preset default (e.g. http://127.0.0.1:11434/v1 for ollama).",
-                "Required for provider 'custom'.")
-            .define("baseUrl", "");
-
-        LLM_API_KEY = builder
-            .comment("API key. Empty for ollama/lmstudio; required for openai/groq/gemini/opencode-go.")
-            .define("apiKey", "");
-
-        LLM_MODEL = builder
-            .comment("Model name. Empty = preset default (deepseek-v4-flash for opencode-go, llama3.1 for ollama).",
-                "For lmstudio leave empty to use whatever model is currently loaded.")
-            .define("model", "");
-
-        LLM_JSON_MODE = builder
+        JSON_MODE = builder
             .comment("Send response_format: {\"type\":\"json_object\"}. Greatly improves JSON output reliability.",
                 "Disable if your provider rejects this field.")
             .define("jsonMode", true);
