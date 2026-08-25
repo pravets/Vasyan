@@ -2,6 +2,7 @@ package ru.pravets.vasyan.chat;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static ru.pravets.vasyan.chat.ChatCommandParser.isAllCommand;
 import static ru.pravets.vasyan.chat.ChatCommandParser.isStayCommand;
 import static ru.pravets.vasyan.chat.ChatCommandParser.normalize;
@@ -110,5 +111,27 @@ class ChatCommandParserTest {
         assertFalse(ChatCommandParser.isLookCommand(normalize("lookout")));
         assertFalse(ChatCommandParser.isLookCommand(normalize("look for diamonds")));
         assertFalse(ChatCommandParser.isLookCommand(normalize("")));
+    }
+
+    // ---- parseGoToCommand ----
+
+    @Test
+    void goToCommands() {
+        assertArrayEquals(new int[]{100, 64, -200},
+            ChatCommandParser.parseGoToCommand(normalize("иди к 100 64 -200")));
+        assertArrayEquals(new int[]{0, 64, 0},
+            ChatCommandParser.parseGoToCommand(normalize("go to 0 64 0")));
+        assertArrayEquals(new int[]{-5, 70, 12},
+            ChatCommandParser.parseGoToCommand(normalize("подойди к -5 70 12")));
+        assertArrayEquals(new int[]{10, 65, 20},
+            ChatCommandParser.parseGoToCommand(normalize("bob иди к 10 65 20")));
+
+        // Marker without coordinates stays on the LLM path ("иди ко мне").
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("иди ко мне")));
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("иди к игроку")));
+        // Not a goto at all.
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("gather 50 wood")));
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("")));
+        assertNull(ChatCommandParser.parseGoToCommand(null));
     }
 }

@@ -122,6 +122,23 @@ public final class VasyanCommandDispatcher {
             return;
         }
 
+        int[] goTo = ChatCommandParser.parseGoToCommand(lower);
+        if (goTo == null && !lowerWithoutName.equals(lower)) {
+            goTo = ChatCommandParser.parseGoToCommand(lowerWithoutName);
+        }
+        if (goTo != null) {
+            // Deterministic pathfind pre-trigger: no LLM round-trip.
+            final int[] target = goTo;
+            java.util.Map<String, Object> params = new java.util.HashMap<>();
+            params.put("x", target[0]);
+            params.put("y", target[1]);
+            params.put("z", target[2]);
+            vasyan.getActionExecutor().executeDirectTask(new ru.pravets.vasyan.action.Task("pathfind", params));
+            source.sendSuccess(() -> Component.literal("§7" + vasyan.getVasyanName()
+                + " идёт к " + target[0] + " " + target[1] + " " + target[2]), false);
+            return;
+        }
+
         COMMAND_EXECUTOR.execute(() -> {
             try {
                 vasyan.getActionExecutor().processNaturalLanguageCommand(command);

@@ -417,7 +417,178 @@ def main():
     if test_chunk_persists_after_restart(args.dir, args.jar, far_x) != 0:
         return 1
 
+    # 7. Pathfinding overhaul scenarios (Phase 0.6 P1): river crossing without
+    #    teleporting, side-adjacency arrival, and dig-through-wall. Fresh
+    #    server (world was saved twice; Bob is adopted on spawn attempt).
+    if test_pathfinding_scenarios(args.dir, args.jar) != 0:
+        return 1
+
     return 0
+
+
+def _bot_position_from_log(log_path, name, after_offset=0):
+    """Extracts the LAST logged position of the named bot after the given byte
+    offset. Vasyan position logs look like 'Vasyan 'Bob' - Ticking action'
+    lines carry no coords, so we rely on PathfindAction success/position debug
+    lines: 'Alex ACTION_START ...' has none either - the reliable source is
+    /vasyan dump-less debug: 'Position: [x, y, z]' inside fallback prompt text
+    or explicit tp responses. Simplest robust source: execute 'tp <name> ~ ~ ~'
+    via RCON which logs 'Teleported <name> to x, y, z'. Returns (x, y, z) or
+    None."""
+    with open(log_path, "r", errors="replace") as f:
+        f.seek(after_offset)
+        chunk = f.read()
+    matches = re.findall(
+        rf"Teleported {re.escape(name)} to \((-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\)", chunk)
+    if not matches:
+        return None
+    x, y, z = map(float, matches[-1])
+    return (int(round(x)), int(round(y)), int(round(z)))
+
+
+def test_pathfinding_scenarios(workdir, jar_path):
+    """Three scenarios over one server run:
+
+    A) River crossing: a water channel is dug across the path; the bot must
+       reach the far side WITHOUT any hop-teleport (amphibious nav swims).
+    B) Adjacent stand: the bot must stop beside an obsidian block (XZ
+       manhattan distance == 1, same y) - GoalAdjacent semantics.
+    C) Wall dig-through: a dirt wall blocking the straight line must be dug
+       through (DIG_THROUGH ladder step) and the bot reaches the target.
+    """
+    log_path = os.path.join(workdir, "behavior_nav.log")
+    if os.path.exists(log_path):
+        os.remove(log_path)
+
+    print("Starting server for pathfinding scenarios...")
+    proc = start_server(workdir, jar_path, log_path)
+    rcon = None
+    try:
+        if not wait_for(log_path, r"Done \(", 180, "server start"):
+            return 1
+        time.sleep(3)
+        rcon = RCON()
+
+        spawn_resp = rcon.command("vasyan spawn Navigator")
+        if "Spawned Vasyan" not in spawn_resp:
+            print(f"  [FAIL] Navigator spawn: {spawn_resp!r}")
+            return 1
+        if not wait_for(log_path, r"[Ss]pawned Vasyan: Navigator with UUID [0-9a-f-]+ at \(", 30,
+                        "Navigator spawn"):
+            return 1
+
+        with open(log_path, "r", errors="replace") as f:
+            log_text = f.read()
+        pos_matches = re.findall(
+            r"[Ss]pawned Vasyan: Navigator with UUID [0-9a-f-]+ at \(([-\d.]+), ([-\d.]+), ([-\d.]+)\)",
+            log_text)
+        if not pos_matches:
+            print("  [FAIL] Navigator spawn position not found")
+            return 1
+        base_x, base_y, base_z = map(float, pos_matches[-1])
+        bx, by, bz = int(base_x), int(base_y), int(base_z)
+        uuid_matches = re.findall(r"[Ss]pawned Vasyan: Navigator with UUID ([0-9a-f-]+)", log_text)
+        nav_uuid = uuid_matches[-1]
+        print(f"  Navigator at ({bx}, {by}, {bz})")
+
+        def bot_pos():
+            # Vanilla tp-to-self trick: 'tp <entity> <entity>' is invalid, so
+            # query through a no-op absolute tp to its own coordinates is not
+            # possible without knowing them; instead use 'data get entity'.
+            resp = rcon.command(f"data get entity {nav_uuid} Pos")
+            m = re.search(r"Pos:\s*\[([-\d.]+)[dD]?,\s*([-\d.]+)[dD]?,\s*([-\d.]+)[dD]?\]", resp)
+            if not m:
+                return None
+            x, y, z = map(float, m.groups())
+            return (int(round(x)), int(round(y)), int(round(z)))
+
+        def goto(tx, ty, tz, timeout_s, forbid_teleport=False, forbid_dig=False):
+            offset_before = os.path.getsize(log_path)
+            rcon.command(f"vasyan tell Navigator иди к {tx} {ty} {tz}")
+            deadline = time.time() + timeout_s
+            reached = False
+            while time.time() < deadline:
+                pos = bot_pos()
+                if pos and abs(pos[0] - tx) <= 2 and abs(pos[2] - tz) <= 2 and abs(pos[1] - ty) <= 4:
+                    reached = True
+                    break
+                time.sleep(3)
+            with open(log_path, "r", errors="replace") as f:
+                f.seek(offset_before)
+                segment = f.read()
+            teleported = re.search(r"hop-teleported past obstacle", segment) is not None
+            dug = re.search(r"dug through", segment) is not None
+            return reached, teleported, dug
+
+        # ---- A) River crossing ----
+        print("Scenario A: river crossing...")
+        # Channel across the path, 4 wide, from +6 to +9 in X, spanning Z -8..+8.
+        for cx in range(6, 10):
+            for cz in range(bz - 8, bz + 9):
+                rcon.command(f"setblock {bx + cx} {by - 1} {bz + (cz - bz)} air")
+                rcon.command(f"setblock {bx + cx} {by} {cz} water")
+                rcon.command(f"setblock {bx + cx} {by + 1} {cz} air")
+                rcon.command(f"setblock {bx + cx} {by + 2} {cz} air")
+        target_ax = bx + 14
+        reached, teleported, dug = goto(target_ax, by, bz, 180, forbid_teleport=True)
+        if not reached:
+            print("  [FAIL] river crossing: bot did not reach the far side in time")
+            return 1
+        if teleported:
+            print("  [FAIL] river crossing used hop-teleport instead of swimming")
+            return 1
+        print(f"  -> crossed river to ({target_ax}, {by}, {bz}) without teleporting")
+
+        # ---- B) Adjacent stand ----
+        print("Scenario B: adjacent stand beside obsidian...")
+        block_b = (bx + 5, by, bz + 6)
+        rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
+        reached, teleported, dug = goto(block_b[0], block_b[1], block_b[2], 120)
+        pos = bot_pos()
+        if not pos:
+            print("  [FAIL] adjacent stand: could not read bot position")
+            return 1
+        manhattan_xz = abs(pos[0] - block_b[0]) + abs(pos[2] - block_b[2])
+        same_y = pos[1] == block_b[1]
+        if manhattan_xz != 1 or not same_y:
+            print(f"  [FAIL] adjacent stand: pos={pos}, manhattan_xz={manhattan_xz}, same_y={same_y}")
+            return 1
+        print(f"  -> stands adjacent (side) to obsidian at {pos}")
+
+        # ---- C) Wall dig-through ----
+        print("Scenario C: dig through dirt wall...")
+        wall_x = bx + 12
+        for wy in (by, by + 1):
+            for wz in range(bz - 1, bz + 2):
+                rcon.command(f"setblock {wall_x} {wy} {wz} minecraft:dirt")
+        target_cx = bx + 22
+        reached, teleported, dug = goto(target_cx, by, bz, 180)
+        if not reached:
+            print("  [FAIL] wall dig-through: did not reach the far side in time")
+            return 1
+        if not dug:
+            print("  [FAIL] wall dig-through: reached target but no DIG_THROUGH evidence in log")
+            return 1
+        print(f"  -> dug through the wall and reached ({target_cx}, {by}, {bz})")
+
+        # Cleanup: remove bot and blocks best-effort.
+        rcon.command("vasyan remove Navigator")
+        rcon.command("stop")
+        try:
+            proc.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through).")
+        return 0
+    finally:
+        if rcon is not None:
+            rcon.close()
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
 
 if __name__ == "__main__":

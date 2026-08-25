@@ -140,6 +140,47 @@ public final class ChatCommandParser {
         return STAY_WORDS.contains(firstWord);
     }
 
+    /**
+     * Parses a deterministic "go to X Y Z" command ("иди к 100 64 -200",
+     * "go to 0 64 0"). Returns {x, y, z} or null when the command is not a
+     * coordinate goto (markerless phrases such as "иди ко мне" stay on the
+     * LLM path). Pure function; unit-testable without bootstrap.
+     */
+    public static int[] parseGoToCommand(String lowerCommand) {
+        if (lowerCommand == null) {
+            return null;
+        }
+        String trimmed = lowerCommand.trim();
+        for (String marker : GOTO_MARKERS) {
+            if (!trimmed.startsWith(marker)) {
+                continue;
+            }
+            String rest = trimmed.substring(marker.length()).trim();
+            java.util.regex.Matcher m = GOTO_COORDS.matcher(rest);
+            if (m.matches()) {
+                try {
+                    return new int[] {
+                        Integer.parseInt(m.group(1)),
+                        Integer.parseInt(m.group(2)),
+                        Integer.parseInt(m.group(3))
+                    };
+                } catch (NumberFormatException ignored) {
+                    return null; // out-of-range numbers -> not a goto
+                }
+            }
+            return null; // marker matched but no coordinates follow
+        }
+        return null;
+    }
+
+    /** Prefixes that introduce a coordinate goto command. */
+    private static final List<String> GOTO_MARKERS = List.of(
+        "иди к", "иди на", "подойди к", "go to", "walk to"
+    );
+
+    private static final java.util.regex.Pattern GOTO_COORDS =
+        java.util.regex.Pattern.compile("^(-?\\d+)\\s+(-?\\d+)\\s+(-?\\d+)$");
+
     /** Convenience: lowercase with ROOT locale (locale-independent). */
     public static String normalize(String command) {
         return command.toLowerCase(Locale.ROOT);
