@@ -72,8 +72,9 @@ public class ProviderChainClient implements AsyncLLMClient {
      */
     private final java.util.concurrent.atomic.AtomicLongArray lastFailureAt;
 
-    /** Timestamp of the last attempt (success or failure) of the HEAD member; gates recovery probes. */
-    private volatile long lastHeadAttemptAt = COOLDOWN_UNSET;
+    /** Timestamp of the last attempt (success or failure) of the HEAD member; gates recovery probes atomically. */
+    private final java.util.concurrent.atomic.AtomicLong lastHeadAttemptAt =
+        new java.util.concurrent.atomic.AtomicLong(COOLDOWN_UNSET);
 
     /**
      * Creates a failover chain.
@@ -102,21 +103,29 @@ public class ProviderChainClient implements AsyncLLMClient {
             idAt(startIndex), startIndex + 1, size, shouldProbeHead(startIndex));
 
         // Cooldown-gated recovery probe of the highest-priority provider.
+        // CAS-gated: only ONE concurrent request wins the probe slot per
+        // cooldown window; the rest walk the chain from their active index.
         if (shouldProbeHead(startIndex)) {
             AsyncLLMClient head = members.get(0);
-            markHeadAttempt();
-            return head.sendAsync(prompt, params)
-                .thenCompose(response -> {
-                    if (!isUsable(response)) {
-                        markFailure(0);
-                        LOGGER.debug("[chain] recovery probe of '{}' still failing", head.getProviderId());
-                        return walk(prompt, params, startIndex);
-                    }
-                    boolean switched = setActive(0);
-                    LOGGER.info("[chain] head provider '{}' recovered, failing back", head.getProviderId());
-                    notifySwitch(head.getProviderId(), true, switched);
-                    return CompletableFuture.completedFuture(response);
-                });
+            if (markHeadAttempt()) {
+                return head.sendAsync(prompt, params)
+                    .thenCompose(response -> {
+                        if (!isUsable(response)) {
+                            markFailure(0);
+                            LOGGER.debug("[chain] recovery probe of '{}' still failing", head.getProviderId());
+                            return walk(prompt, params, startIndex);
+                        }
+                        // Recovered: CLEAR the stale failure timestamp so the
+                        // next request does not skip the head due to its old
+                        // cooldown and flap back to the backup.
+                        clearFailure(0);
+                        boolean switched = setActive(0);
+                        LOGGER.info("[chain] head provider '{}' recovered, failing back", head.getProviderId());
+                        notifySwitch(head.getProviderId(), true, switched);
+                        return CompletableFuture.completedFuture(response);
+                    });
+            }
+            // Lost the race: serve via the normal walk.
         }
 
         return walk(prompt, params, startIndex);
@@ -244,10 +253,14 @@ public class ProviderChainClient implements AsyncLLMClient {
             && !response.getContent().isBlank();
     }
 
-    /** Whether this request should begin with a cooldown-gated probe of the head provider. */
+    /**
+     * Whether this request should begin with a cooldown-gated probe of the
+     * head provider. Pure check - the caller must confirm the slot via
+     * {@link #markHeadAttempt()} (CAS) before actually probing.
+     */
     private boolean shouldProbeHead(int activeIdx) {
         return activeIdx > 0
-            && System.currentTimeMillis() - lastHeadAttemptAt >= failoverRetryMillis;
+            && System.currentTimeMillis() - lastHeadAttemptAt.get() >= failoverRetryMillis;
     }
 
     /** A member that just failed is skipped until the cooldown elapses. */
@@ -260,9 +273,20 @@ public class ProviderChainClient implements AsyncLLMClient {
         this.lastFailureAt.set(index, System.currentTimeMillis());
     }
 
-    /** Head attempts (success or failure) gate the NEXT recovery probe. */
-    private void markHeadAttempt() {
-        this.lastHeadAttemptAt = System.currentTimeMillis();
+    /**
+     * Atomically claims the recovery-probe slot: updates the head attempt
+     * timestamp and returns true only for the FIRST caller in the current
+     * window. Losers must not probe (prevents duplicate parallel probes).
+     */
+    private boolean markHeadAttempt() {
+        long now = System.currentTimeMillis();
+        long prev = lastHeadAttemptAt.getAndSet(now);
+        return now - prev >= failoverRetryMillis;
+    }
+
+    /** Clears a member's failure cooldown (used when the head recovers). */
+    private void clearFailure(int index) {
+        this.lastFailureAt.set(index, COOLDOWN_UNSET);
     }
 
     /** Records that a member was just attempted (only matters for the head's recovery gate). */

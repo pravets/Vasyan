@@ -239,18 +239,30 @@ public class VasyanCommands {
         boolean failedOver = chain != null && !activeProvider.equals(
             chain.getMembers().get(0).getProviderId());
 
-        String configuredBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
-        String activeModel = VasyanConfig.LLM_MODEL.get();
-        if (activeModel == null || activeModel.isEmpty()) {
-            activeModel = LLMProviders.resolveModel(activeProvider, "");
-        }
+        // Effective settings of the ACTIVE member. In chain mode the same
+        // resolution applies as in TaskPlanner (member section -> shared llm.*
+        // -> preset). In SINGLE-PROVIDER mode TaskPlanner uses ONLY shared
+        // llm.* values, so member sections must NOT be consulted here -
+        // otherwise the status would show a different endpoint than requests
+        // actually use.
+        var memberSection = chain != null ? TaskPlanner.memberSection(activeProvider) : null;
+        String sharedBase = LLMProviders.resolveBaseUrl(activeProvider, VasyanConfig.LLM_BASE_URL.get());
+        String effectiveBase = firstNonBlank(
+            memberSection != null ? memberSection.baseUrl().get() : null, sharedBase);
+        String sharedModelRaw = VasyanConfig.LLM_MODEL.get();
+        String sharedModel = sharedModelRaw != null && !sharedModelRaw.isEmpty()
+            ? sharedModelRaw : LLMProviders.resolveModel(activeProvider, "");
+        String effectiveModel = firstNonBlank(
+            memberSection != null ? memberSection.model().get() : null, sharedModel);
         String key = VasyanConfig.LLM_API_KEY.get();
-        boolean keyPresent = key != null && !key.isEmpty();
+        String effectiveKey = firstNonBlank(
+            memberSection != null ? memberSection.apiKey().get() : null, key);
+        boolean keyPresent = effectiveKey != null && !effectiveKey.isEmpty();
 
         source.sendSuccess(() -> Component.literal(
             "§eActive provider: §f" + activeProvider
                 + (failedOver ? "§7 (failed over from §f" + chain.getMembers().get(0).getProviderId() + "§7)" : "")
-                + " §7(" + configuredBase + ")"), false);
+                + " §7(" + effectiveBase + ")"), false);
 
         // Configured chain with per-member circuit breaker state.
         if (chain != null) {
@@ -285,11 +297,11 @@ public class VasyanCommands {
         String modelLine;
         if (LLMProviders.CUSTOM.equals(activeProvider)) {
             // Custom endpoint may or may not need a key - depends on the server.
-            modelLine = "§eModel: §f" + activeModel + "§7 | key: §7optional";
+            modelLine = "§eModel: §f" + effectiveModel + "§7 | key: §7optional";
         } else if (!LLMProviders.requiresKey(activeProvider)) {
-            modelLine = "§eModel: §f" + activeModel + "§7 | key: §7not required";
+            modelLine = "§eModel: §f" + effectiveModel + "§7 | key: §7not required";
         } else {
-            modelLine = "§eModel: §f" + activeModel + "§7 | key: "
+            modelLine = "§eModel: §f" + effectiveModel + "§7 | key: "
                 + (keyPresent ? "§aset" : "§cmissing");
         }
         source.sendSuccess(() -> Component.literal(modelLine), false);
@@ -305,11 +317,15 @@ public class VasyanCommands {
                 try {
                     // Per-member overrides first ([llm.members.<id>]), then the
                     // shared llm.* values - same resolution as TaskPlanner uses.
-                    var section = TaskPlanner.memberSection(memberId);
+                    // In single-provider mode there is no chain client built from
+                    // member sections, so skip them to match real request routing.
+                    var section = chain != null ? TaskPlanner.memberSection(memberId) : null;
                     String memberBase = LLMProviders.resolveBaseUrl(memberId,
-                        firstNonBlank(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get()));
-                    String memberKey = firstNonBlank(section.apiKey().get(), key);
-                    String memberModel = firstNonBlank(section.model().get(), VasyanConfig.LLM_MODEL.get());
+                        firstNonBlank(section != null ? section.baseUrl().get() : null,
+                            VasyanConfig.LLM_BASE_URL.get()));
+                    String memberKey = firstNonBlank(section != null ? section.apiKey().get() : null, key);
+                    String memberModel = firstNonBlank(section != null ? section.model().get() : null,
+                        VasyanConfig.LLM_MODEL.get());
                     OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
                         memberId, memberBase, memberKey, memberModel,
                         VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),

@@ -137,8 +137,13 @@ public class TaskPlanner {
                 continue;
             }
             AsyncLLMClient member;
-            if (first && id.equals(primaryProvider)) {
-                // Head of the chain == llm.provider: reuse the primary client.
+            // Per-member overrides of the head: reuse primaryResilient ONLY if
+            // none are configured, otherwise build a dedicated client - the
+            // primary was created from shared llm.* fields and would ignore
+            // [llm.members.<id>] settings.
+            boolean headWithNoOverrides = first && id.equals(primaryProvider)
+                && !hasMemberOverrides(id);
+            if (headWithNoOverrides) {
                 member = primaryResilient;
             } else {
                 VasyanConfig.MemberSection section = memberSection(id);
@@ -178,6 +183,20 @@ public class TaskPlanner {
 
     private static boolean containsId(List<AsyncLLMClient> members, String id) {
         return members.stream().anyMatch(m -> id.equals(m.getProviderId()));
+    }
+
+    /**
+     * True when {@code llm.members.<id>} defines at least one non-blank value.
+     * Used to decide whether the primary single-provider client can be reused
+     * as the chain head (it carries only shared llm.* settings).
+     */
+    private static boolean hasMemberOverrides(String id) {
+        VasyanConfig.MemberSection s = memberSection(id);
+        return isSet(s.apiKey().get()) || isSet(s.model().get()) || isSet(s.baseUrl().get());
+    }
+
+    private static boolean isSet(String v) {
+        return v != null && !v.isBlank();
     }
 
     /** Per-provider override section for the given chain member id. Public: used by /vasyan providers health checks. */
