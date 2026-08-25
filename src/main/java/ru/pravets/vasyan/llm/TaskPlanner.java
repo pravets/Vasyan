@@ -66,7 +66,8 @@ public class TaskPlanner {
                 provider, String.join(", ", List.of(
                     LLMProviders.OPENAI, LLMProviders.GROQ, LLMProviders.GEMINI,
                     LLMProviders.OLLAMA, LLMProviders.LMSTUDIO, LLMProviders.OPENCODE_GO,
-                    LLMProviders.DEEPSEEK, LLMProviders.ROUTERAI, LLMProviders.CLOUD_RU_FM,
+                    LLMProviders.DEEPSEEK, LLMProviders.OPENROUTER, LLMProviders.ROUTERAI,
+                    LLMProviders.CLOUD_RU_FM,
                     LLMProviders.SELECTEL_ROUTER, LLMProviders.TOKENRA,
                     LLMProviders.CUSTOM)));
             provider = LLMProviders.OLLAMA;
@@ -232,6 +233,7 @@ public class TaskPlanner {
             case LLMProviders.LMSTUDIO -> VasyanConfig.MEMBER_LMSTUDIO;
             case LLMProviders.OPENCODE_GO -> VasyanConfig.MEMBER_OPENCODE_GO;
             case LLMProviders.DEEPSEEK -> VasyanConfig.MEMBER_DEEPSEEK;
+            case LLMProviders.OPENROUTER -> VasyanConfig.MEMBER_OPENROUTER;
             case LLMProviders.ROUTERAI -> VasyanConfig.MEMBER_ROUTERAI;
             case LLMProviders.CLOUD_RU_FM -> VasyanConfig.MEMBER_CLOUD_RU_FM;
             case LLMProviders.SELECTEL_ROUTER -> VasyanConfig.MEMBER_SELECTEL_ROUTER;
