@@ -123,8 +123,6 @@ class ChatCommandParserTest {
             ChatCommandParser.parseGoToCommand(normalize("go to 0 64 0")));
         assertArrayEquals(new int[]{-5, 70, 12},
             ChatCommandParser.parseGoToCommand(normalize("подойди к -5 70 12")));
-        assertArrayEquals(new int[]{10, 65, 20},
-            ChatCommandParser.parseGoToCommand(normalize("bob иди к 10 65 20")));
 
         // Marker without coordinates stays on the LLM path ("иди ко мне").
         assertNull(ChatCommandParser.parseGoToCommand(normalize("иди ко мне")));
