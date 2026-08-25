@@ -65,7 +65,10 @@ public class PathfindAction extends BaseAction {
     @Override
     protected void onTick() {
         long nowNano = System.nanoTime();
-        if (budgets.thinkExpired(nowNano)) {
+        // The think budget bounds PATH PLANNING, not recovery: while the monitor
+        // runs its fallback ladder (dig/scaffold/teleport), progress is slow by
+        // design (paced replan windows) and the budget must not kill it.
+        if (budgets.thinkExpired(nowNano) && !monitor.inLadderRecovery()) {
             result = ActionResult.failure("Pathfinding budget exhausted (think timeout)");
             return;
         }

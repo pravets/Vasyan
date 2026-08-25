@@ -180,6 +180,15 @@ public final class PathMonitor {
         navDoneStallCounter = 0;
     }
 
+    /**
+     * Whether the monitor is currently executing the fallback ladder (dig/scaffold/teleport)
+     * or has exhausted its paced replan budget. While true, callers with a think-budget should
+     * keep ticking instead of failing: recovery steps take many stall windows by design.
+     */
+    public boolean inLadderRecovery() {
+        return step != Step.LADDER_ENTRY || navDoneReplansUsed > 0;
+    }
+
     private Decision handleNavDoneOutsideGoal() {
         // A finished path that ends off-goal replans at most once per stall
         // window: without this pacing the navDone branch burns all
