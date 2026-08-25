@@ -47,6 +47,8 @@ public class PathfindAction extends BaseAction {
         goal = VasyanGoal.near(targetPos, GOAL_RANGE_BLOCKS);
         budgets = createBudgets();
         monitor = VasyanPathing.moveTo(vasyan, goal, budgets);
+        ru.pravets.vasyan.VasyanMod.LOGGER.info(
+            "Vasyan '{}': pathfind start target={}", vasyan.getVasyanName(), targetPos);
     }
 
     /**
@@ -75,6 +77,8 @@ public class PathfindAction extends BaseAction {
             return;
         }
         if (monitor.finished()) {
+            ru.pravets.vasyan.VasyanMod.LOGGER.info(
+                "Vasyan '{}': pathfind GAVE UP towards {}", vasyan.getVasyanName(), targetPos);
             result = ActionResult.failure("Gave up: " + monitor.goal().describe());
             return;
         }
