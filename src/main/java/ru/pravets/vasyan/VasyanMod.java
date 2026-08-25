@@ -66,6 +66,9 @@ public class VasyanMod {
         // Quarantine a syntactically broken config BEFORE Forge tries to load
         // it (a broken file would otherwise crash the game during mod loading).
         VasyanConfig.quarantineUnparseableFile();
+        // Mod-owned per-provider endpoint settings; parsed directly, never
+        // rewritten by Forge's config corrector.
+        ru.pravets.vasyan.llm.LlmMembersFile.reload();
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, VasyanConfig.SPEC);
 

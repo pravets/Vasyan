@@ -153,10 +153,20 @@ public class TaskPlanner {
             if (headWithNoOverrides) {
                 member = primaryResilient;
             } else {
+                // Resolution: mod-owned vasyan-llm-members.toml (never wiped by
+                // Forge's config corrector, any member name allowed) ->
+                // [llm.members.<id>] Forge section (preset ids only) -> shared llm.* fields.
+                var fileSettings = LlmMembersFile.get(id);
                 VasyanConfig.MemberSection section = memberSection(id);
-                String memberKey = firstNonEmpty(section.apiKey().get(), VasyanConfig.LLM_API_KEY.get());
-                String memberModel = firstNonEmpty(section.model().get(), VasyanConfig.LLM_MODEL.get());
-                String memberBaseUrl = firstNonEmpty(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get());
+                String memberKey = firstNonEmpty(
+                    fileSettings != null ? fileSettings.apiKey() : null,
+                    firstNonEmpty(section.apiKey().get(), VasyanConfig.LLM_API_KEY.get()));
+                String memberModel = firstNonEmpty(
+                    fileSettings != null ? fileSettings.model() : null,
+                    firstNonEmpty(section.model().get(), VasyanConfig.LLM_MODEL.get()));
+                String memberBaseUrl = firstNonEmpty(
+                    fileSettings != null ? fileSettings.baseUrl() : null,
+                    firstNonEmpty(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get()));
 
                 OpenAICompatibleClient base = OpenAICompatibleClient.forProvider(
                     id,
@@ -198,6 +208,10 @@ public class TaskPlanner {
      * as the chain head (it carries only shared llm.* settings).
      */
     private static boolean hasMemberOverrides(String id) {
+        var fileSettings = LlmMembersFile.get(id);
+        if (fileSettings != null && fileSettings.hasAny()) {
+            return true;
+        }
         VasyanConfig.MemberSection s = memberSection(id);
         return isSet(s.apiKey().get()) || isSet(s.model().get()) || isSet(s.baseUrl().get());
     }

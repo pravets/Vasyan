@@ -1,0 +1,27 @@
+# Per-provider LLM endpoint settings - MOD-OWNED FILE, NEVER REWRITTEN.
+#
+# Unlike vasyan-common.toml (which Forge corrects and strips to the compiled
+# schema on every startup), this file is parsed by the mod directly: any
+# section name survives, values are never removed or reordered. Edit freely.
+#
+# Referenced from llm.providerChain in vasyan-common.toml. Resolution order
+# per member: this file -> [llm.members.<id>] in vasyan-common.toml ->
+# shared llm.* fields -> preset defaults.
+#
+# Example:
+#
+# [opencode-go]
+# apiKey = "your-opencode-zen-key"
+# model = "deepseek-v4-pro"
+#
+# [my-own-endpoint]           # arbitrary name, use it in providerChain as-is
+# baseUrl = "https://llm.example.com/v1"
+# apiKey = "sk-..."
+# model = "gpt-x"
+#
+# [ollama-on-lan]
+# baseUrl = "http://192.168.1.50:11434/v1"
+# model = "qwen3:14b"
+
+# This commented-out example produces zero sections; delete these comments
+# once you add real ones.
