@@ -497,7 +497,11 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # /fill keeps this to a handful of RCON commands.
         PLAT_Y = 200          # floor level (bot stands on 200 -> feet in 201? No: blocks at y=200 are the floor surface; entity stands at y=201)
         wx, wz = bx + 120, bz  # arena origin, far enough not to collide with earlier worlds
-        rcon.command(f"forceload add {wx >> 4} {wz >> 4}")
+        # Force-load EVERY chunk the platform spans (3 chunks), otherwise the
+        # bot does not tick there and pathfind never starts.
+        for cx4 in range((wx - 4) >> 4, (wx + 40) >> 4 + 1):
+            rcon.command(f"forceload add {cx4} {wz >> 4}")
+            rcon.command(f"forceload add {cx4} {(wz >> 4) + 1}")
         rcon.command(f"fill {wx - 4} {PLAT_Y} {wz - 14} {wx + 40} {PLAT_Y} {wz + 14} minecraft:smooth_stone")
         rcon.command(f"fill {wx - 4} {PLAT_Y + 1} {wz - 14} {wx + 40} {PLAT_Y + 6} {wz + 14} minecraft:air")
         # Walls so nobody wanders off the platform edge accidentally.
@@ -523,7 +527,11 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         def goto(tx, ty, tz, timeout_s, forbid_teleport=False, forbid_dig=False):
             offset_before = os.path.getsize(log_path)
-            rcon.command(f"vasyan tell Navigator иди к {tx} {ty} {tz}")
+            resp = rcon.command(f"vasyan tell Navigator иди к {tx} {ty} {tz}")
+            # sendSuccess for RCON returns in the command response: the
+            # pre-trigger answers '<name> идёт к ...', the LLM path answers
+            # with a fallback plan or empty string.
+            pretrigger_fired = "идёт к" in (resp or "")
             deadline = time.time() + timeout_s
             reached = False
             while time.time() < deadline:
@@ -537,7 +545,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
                 segment = f.read()
             teleported = re.search(r"hop-teleported past obstacle", segment) is not None
             dug = re.search(r"dug through", segment) is not None
-            return reached, teleported, dug
+            return reached, teleported, dug, pretrigger_fired
 
         # ---- A) River crossing ----
         print("Scenario A: river crossing...")
@@ -546,13 +554,10 @@ def test_pathfinding_scenarios(workdir, jar_path):
         rcon.command(f"fill {wx + 6} {PLAT_Y - 2} {wz - 13} {wx + 9} {PLAT_Y} {wz + 13} minecraft:water")
         rcon.command(f"fill {wx + 6} {PLAT_Y + 1} {wz - 13} {wx + 9} {PLAT_Y + 4} {wz + 13} minecraft:air")
         target_ax = wx + 14
-        reached, teleported, dug = goto(target_ax, PLAT_Y + 1, wz, 240)
+        reached, teleported, dug, pretrigger_fired = goto(target_ax, PLAT_Y + 1, wz, 240)
         if not reached:
             pos = bot_pos()
-            with open(log_path, "r", errors="replace") as f:
-                diag = f.read()
-            pretrigger = "идёт к" in diag
-            print(f"  [FAIL] river crossing: bot_pos={pos}, pre-trigger fired={pretrigger}")
+            print(f"  [FAIL] river crossing: bot_pos={pos}, pre-trigger fired={pretrigger_fired}")
             return 1
         if teleported:
             print("  [FAIL] river crossing used hop-teleport instead of swimming")
@@ -563,7 +568,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         print("Scenario B: adjacent stand beside obsidian...")
         block_b = (wx + 5, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
-        reached, teleported, dug = goto(block_b[0], block_b[1], block_b[2], 120)
+        reached, teleported, dug, pretrigger_fired = goto(block_b[0], block_b[1], block_b[2], 120)
         pos = bot_pos()
         if not pos:
             print("  [FAIL] adjacent stand: could not read bot position")
@@ -580,7 +585,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         wall_x = wx + 12
         rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 1} {wall_x} {PLAT_Y + 2} {wz + 1} minecraft:dirt")
         target_cx = wx + 22
-        reached, teleported, dug = goto(target_cx, PLAT_Y + 1, wz, 180)
+        reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 180)
         if not reached:
             print("  [FAIL] wall dig-through: did not reach the far side in time")
             return 1
