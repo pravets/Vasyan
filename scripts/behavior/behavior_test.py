@@ -584,11 +584,12 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- C) Wall dig-through ----
         print("Scenario C: dig through dirt wall...")
-        # Ahead of scenario B's block (bot is now near wx+18): wall at wx+26.
+        # Full-width wall (platform edge to edge, 3 high): no way around, the
+        # monitor MUST use its ladder - dig first, teleport as last resort.
         wall_x = wx + 26
-        rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 1} {wall_x} {PLAT_Y + 2} {wz + 1} minecraft:dirt")
+        rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 14} {wall_x} {PLAT_Y + 3} {wz + 14} minecraft:dirt")
         target_cx = wx + 34
-        reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 180)
+        reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
             print("  [FAIL] wall dig-through: did not reach the far side in time")
             return 1
