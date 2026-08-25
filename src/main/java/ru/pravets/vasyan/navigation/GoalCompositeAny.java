@@ -10,15 +10,21 @@ import java.util.stream.Stream;
  * Composite goal: reached when ANY of the wrapped sub-goals is reached (logical OR).
  * Short-circuits on the first satisfied sub-goal.
  *
- * @param goals wrapped sub-goals (defensively copied)
+ * @param goals wrapped sub-goals (defensively copied; the accessor returns a copy too)
  */
 public record GoalCompositeAny(VasyanGoal[] goals) implements VasyanGoal {
 
+    /** Defensively copies on construction and again on access so callers can never mutate. */
     public GoalCompositeAny {
         goals = goals.clone();
         if (goals.length == 0) {
             throw new IllegalArgumentException("any(...) requires at least one goal");
         }
+    }
+
+    @Override
+    public VasyanGoal[] goals() {
+        return goals.clone();
     }
 
     @Override

@@ -143,7 +143,7 @@ public final class PathMonitor {
             return Decision.CONTINUE;
         }
         if (navDone && !hasPath) {
-            return handleNavDoneOutsideGoal();
+            return handleNavDoneOutsideGoal(canDig, canPlace);
         }
         if (++stallCounter < stallTicks) {
             return Decision.CONTINUE;
@@ -157,6 +157,11 @@ public final class PathMonitor {
      * and returns the monitor to normal tracking; consumed budgets are not restored.
      */
     public void onProgress() {
+        // Real motion happened: step back to normal tracking (a fresh stall
+        // window, back at LADDER_ENTRY so the next decision is a vanilla replan
+        // before any recovery step is re-tried). This prevents the ladder from
+        // re-firing DIG_THROUGH on every window after a single successful dig.
+        step = Step.LADDER_ENTRY;
         resetWindow();
     }
 
@@ -189,7 +194,7 @@ public final class PathMonitor {
         return step != Step.LADDER_ENTRY || navDoneReplansUsed > 0;
     }
 
-    private Decision handleNavDoneOutsideGoal() {
+    private Decision handleNavDoneOutsideGoal(boolean canDig, boolean canPlace) {
         // A finished path that ends off-goal replans at most once per stall
         // window: without this pacing the navDone branch burns all
         // navDoneReplans in consecutive ticks (each replan takes one tick to
@@ -209,7 +214,7 @@ public final class PathMonitor {
         // further replans). GIVE_UP only after the ladder itself is exhausted.
         this.replansUsed = Math.max(replansUsed, maxReplans);
         resetWindow();
-        return escalate(true, true);
+        return escalate(canDig, canPlace);
     }
 
     /**

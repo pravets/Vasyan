@@ -39,6 +39,12 @@ public record PathBudgets(long thinkDeadlineNano, long tickDeadlineNano, int sea
      * @param searchRadius   max search distance in blocks
      */
     public static PathBudgets start(long nowNano, long thinkTimeoutMs, long tickTimeoutMs, int searchRadius) {
+        if (thinkTimeoutMs <= 0) {
+            throw new IllegalArgumentException("thinkTimeoutMs must be > 0, got " + thinkTimeoutMs);
+        }
+        if (tickTimeoutMs <= 0) {
+            throw new IllegalArgumentException("tickTimeoutMs must be > 0, got " + tickTimeoutMs);
+        }
         long tickNanos = Math.multiplyExact(tickTimeoutMs, 1_000_000L);
         return new PathBudgets(nowNano + Math.multiplyExact(thinkTimeoutMs, 1_000_000L),
             nowNano + tickNanos, searchRadius, tickNanos);

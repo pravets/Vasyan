@@ -291,6 +291,9 @@ public class ActionExecutor {
             idleFollowAction.cancel();
             idleFollowAction = null;
         }
+        // An in-flight async LLM plan would later append its tasks behind (or
+        // clash with) this direct command - cancel it first.
+        cancelPlanning();
         setStaying(false);
         taskQueue.clear();
         taskQueue.add(task);

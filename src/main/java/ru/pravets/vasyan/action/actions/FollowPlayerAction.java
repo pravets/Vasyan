@@ -80,8 +80,10 @@ public class FollowPlayerAction extends BaseAction {
             long nowNano = System.nanoTime();
             followBudgets = followBudgets.nextTick(nowNano);
             if (followBudgets.thinkExpired(nowNano)) {
-                // Following is long-lived: a slow route is replanned, never failed.
-                startRoute(playerBlock);
+                // Following is long-lived: think-budget expiry just means the
+                // route attempt took too long - restart the budgets silently and
+                // keep enforcing (no full route rebuild or failure).
+                followBudgets = rebuildBudgets();
                 return;
             }
             VasyanPathing.enforce(vasyan, followMonitor);
@@ -102,6 +104,15 @@ public class FollowPlayerAction extends BaseAction {
             ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
         followMonitor = VasyanPathing.moveTo(vasyan, VasyanGoal.near(playerBlock, 2), followBudgets);
+    }
+
+    /** Rebuilds ONLY the time budgets (no navigation change) after a think-budget expiry. */
+    private PathBudgets rebuildBudgets() {
+        long nowNano = System.nanoTime();
+        return PathBudgets.start(nowNano,
+            ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
+            ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
+            ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
     }
 
     @Override
