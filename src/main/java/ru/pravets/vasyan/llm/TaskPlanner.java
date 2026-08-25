@@ -129,7 +129,14 @@ public class TaskPlanner {
                 continue;
             }
             if (!LLMProviders.isValid(id)) {
-                VasyanMod.LOGGER.warn("providerChain: unknown provider '{}' - skipping", id);
+                VasyanMod.LOGGER.warn(
+                    "providerChain: unknown provider '{}' - skipping. " +
+                    "Member sections exist only for presets: openai, groq, gemini, ollama, " +
+                    "lmstudio, opencode-go, custom. For your own endpoint use 'custom' in the " +
+                    "chain and configure it under [llm.members.custom] (baseUrl/apiKey/model). " +
+                    "NOTE: Forge REMOVES settings under any other [llm.members.<name>] section " +
+                    "on startup - they are not part of the mod's config schema.",
+                    id);
                 continue;
             }
             if (containsId(members, id)) {
