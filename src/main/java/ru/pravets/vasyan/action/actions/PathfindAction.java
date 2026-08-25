@@ -79,7 +79,7 @@ public class PathfindAction extends BaseAction {
         }
         boolean everMoved = !current.equals(firstPosition);
         if (budgets.thinkExpired(nowNano) && !everMoved && !monitor.inLadderRecovery()) {
-            ru.pravets.vasyan.VasyanMod.LOGGER.info(
+            ru.pravets.vasyan.VasyanMod.LOGGER.debug(
                 "Vasyan '{}': pathfind budget exhausted before any movement",
                 vasyan.getVasyanName());
             result = ActionResult.failure("Pathfinding budget exhausted (think timeout)");
@@ -87,7 +87,7 @@ public class PathfindAction extends BaseAction {
         }
         if (monitor.finished()) {
             ru.pravets.vasyan.VasyanMod.LOGGER.info(
-                "Vasyan '{}': pathfind GAVE UP towards {}", vasyan.getVasyanName(), targetPos);
+                "Vasyan '{}': pathfind gave up towards {}", vasyan.getVasyanName(), targetPos);
             result = ActionResult.failure("Gave up: " + monitor.goal().describe());
             return;
         }

@@ -122,7 +122,7 @@ public final class VasyanPathing {
 
         // Temporary diagnostics for behavior scenario C (wall dig-through).
         if (vasyan.tickCount % 40 == 0) {
-            VasyanMod.LOGGER.info("Vasyan '{}': nav diag pos={} navDone={} canDig={} canPlace={} "
+            VasyanMod.LOGGER.debug("Vasyan '{}': nav diag pos={} navDone={} canDig={} canPlace={} "
                     + "diggable={} recovering={}",
                 vasyan.getVasyanName(), vasyan.blockPosition(), navDone, canDig, canPlace,
                 diggable, monitor.inLadderRecovery());

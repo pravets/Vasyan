@@ -426,26 +426,6 @@ def main():
     return 0
 
 
-def _bot_position_from_log(log_path, name, after_offset=0):
-    """Extracts the LAST logged position of the named bot after the given byte
-    offset. Vasyan position logs look like 'Vasyan 'Bob' - Ticking action'
-    lines carry no coords, so we rely on PathfindAction success/position debug
-    lines: 'Alex ACTION_START ...' has none either - the reliable source is
-    /vasyan dump-less debug: 'Position: [x, y, z]' inside fallback prompt text
-    or explicit tp responses. Simplest robust source: execute 'tp <name> ~ ~ ~'
-    via RCON which logs 'Teleported <name> to x, y, z'. Returns (x, y, z) or
-    None."""
-    with open(log_path, "r", errors="replace") as f:
-        f.seek(after_offset)
-        chunk = f.read()
-    matches = re.findall(
-        rf"Teleported {re.escape(name)} to \((-?[\d.]+), (-?[\d.]+), (-?[\d.]+)\)", chunk)
-    if not matches:
-        return None
-    x, y, z = map(float, matches[-1])
-    return (int(round(x)), int(round(y)), int(round(z)))
-
-
 def test_pathfinding_scenarios(workdir, jar_path):
     """Three scenarios over one server run:
 
@@ -497,9 +477,9 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # /fill keeps this to a handful of RCON commands.
         PLAT_Y = 200          # floor level (bot stands on 200 -> feet in 201? No: blocks at y=200 are the floor surface; entity stands at y=201)
         wx, wz = bx + 120, bz  # arena origin, far enough not to collide with earlier worlds
-        # Force-load EVERY chunk the platform spans (3 chunks), otherwise the
-        # bot does not tick there and pathfind never starts.
-        for cx4 in range((wx - 4) >> 4, (wx + 40) >> 4 + 1):
+        # Force-load EVERY chunk the platform spans, otherwise the bot does not
+        # tick in far chunks and pathfind never starts.
+        for cx4 in range((wx - 4) >> 4, ((wx + 40) >> 4) + 1):
             rcon.command(f"forceload add {cx4} {wz >> 4}")
             rcon.command(f"forceload add {cx4} {(wz >> 4) + 1}")
         rcon.command(f"fill {wx - 4} {PLAT_Y} {wz - 14} {wx + 40} {PLAT_Y} {wz + 14} minecraft:smooth_stone")
