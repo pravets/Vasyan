@@ -28,10 +28,14 @@ public class CombatAction extends BaseAction {
     private int ticksRunning;
     private static final int MAX_TICKS = 600;
     private static final double ATTACK_RANGE = 3.5;
+    /** Navigation speed while approaching (matches the old pre-monitor trot). */
+    private static final double COMBAT_NAV_SPEED = 2.5;
 
     private PathMonitor routeMonitor;
     private PathBudgets routeBudgets;
     private BlockPos routeTargetPos;
+    /** Bot cell when the current route began (planning-only bail). */
+    private BlockPos routeStartPos;
 
     public CombatAction(VasyanEntity vasyan, Task task) {
         super(vasyan, task);
@@ -103,7 +107,12 @@ public class CombatAction extends BaseAction {
         if (routeMonitor != null && routeBudgets != null) {
             long nowNano = System.nanoTime();
             routeBudgets = routeBudgets.nextTick(nowNano);
-            if (routeBudgets.thinkExpired(nowNano)) {
+            // think-budget bounds PLANNING only: fail only if the route never got
+            // moving inside the budget - once the bot advances, the monitor's own
+            // budgets (stall windows + paced replans + recovery ladder) govern.
+            boolean moved = routeStartPos != null
+                && !vasyan.blockPosition().equals(routeStartPos);
+            if (routeBudgets.thinkExpired(nowNano) && !moved && !routeMonitor.inLadderRecovery()) {
                 finishCombat("Cannot reach combat target");
                 result = ActionResult.failure("Cannot reach combat target");
                 return;
@@ -128,13 +137,15 @@ public class CombatAction extends BaseAction {
     /** Starts a fresh monitored route toward the given target block. */
     private void startRoute(BlockPos targetBlock) {
         routeTargetPos = targetBlock;
+        routeStartPos = vasyan.blockPosition();
         long nowNano = System.nanoTime();
         routeBudgets = PathBudgets.start(nowNano,
             ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
         boolean wasInvulnerable = vasyan.isInvulnerable();
-        routeMonitor = VasyanPathing.moveTo(vasyan, VasyanGoal.near(targetBlock, 1), routeBudgets);
+        routeMonitor = VasyanPathing.moveTo(vasyan, VasyanGoal.near(targetBlock, 1),
+            routeBudgets, COMBAT_NAV_SPEED);
         // moveTo() calls setFlying(false), which clears the building-invulnerability
         // flag as a side effect; combat must keep it while engaging a target.
         if (wasInvulnerable) {

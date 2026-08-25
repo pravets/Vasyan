@@ -264,7 +264,9 @@ public class VasyanConfig {
 
         builder.comment("Vasyan Navigation (pathfinding) Configuration",
             "Budgets applied to every pathfinding attempt so a stuck bot cannot burn ticks forever.",
-            "thinkTimeoutMs caps the whole attempt, tickTimeoutMs caps each per-tick pathfinding slice,",
+            "thinkTimeoutMs caps the time from attempt start until the bot first moves (planning only;",
+            "once moving, the monitor's stall/replan/ladder budgets govern the journey).",
+            "tickTimeoutMs caps each per-tick pathfinding slice,",
             "searchRadius limits how far around the bot a route may be searched.")
             .push("navigation");
 

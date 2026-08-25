@@ -100,6 +100,8 @@ public class GatherResourceAction extends BaseAction {
     private PathMonitor routeMonitor;
     private PathBudgets routeBudgets;
     private BlockPos lastRouteTarget;
+    /** Bot cell when the current route attempt began (to detect planning-only bail). */
+    private BlockPos routeStartPos;
     private int ticksRunning;
     private int statusCooldown;
 
@@ -376,8 +378,9 @@ public class GatherResourceAction extends BaseAction {
         // break it); a look-out station is reached within a small radius.
         if (!routeTarget.equals(lastRouteTarget)) {
             lastRouteTarget = routeTarget;
+            routeStartPos = vasyan.blockPosition();
             routeGoal = routeTarget.equals(mineTarget)
-                ? VasyanGoal.adjacent(routeTarget)
+                ? VasyanGoal.near(routeTarget, 1)
                 : VasyanGoal.near(routeTarget, STATION_GOAL_RANGE);
             routeBudgets = PathBudgets.start(System.nanoTime(),
                 VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
@@ -389,10 +392,14 @@ public class GatherResourceAction extends BaseAction {
         long nowNano = System.nanoTime();
         BlockPos botPos = vasyan.blockPosition();
 
-        // The whole attempt ran out of its time budget: treat like the old
-        // stall give-up so SEARCH does not re-pick the same unreachable block.
-        if (routeBudgets.thinkExpired(nowNano)) {
-            debugLog("ROUTING", "think budget exhausted for " + routeGoal.describe());
+        // think-budget bounds PLANNING only: if the route attempt ran out of
+        // time before the bot ever moved, blacklist the target as before. Once
+        // the bot is moving the monitor's own budgets (stall windows + paced
+        // replans + recovery ladder) govern - a long walk is not a planning
+        // failure (review #39).
+        boolean moved = routeStartPos != null && !botPos.equals(routeStartPos);
+        if (routeBudgets.thinkExpired(nowNano) && !moved && !routeMonitor.inLadderRecovery()) {
+            debugLog("ROUTING", "think budget exhausted before movement for " + routeGoal.describe());
             skipCurrentRouteTarget();
             return;
         }

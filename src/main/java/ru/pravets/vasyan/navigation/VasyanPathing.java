@@ -86,16 +86,34 @@ public final class VasyanPathing {
      * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
      */
     public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets) {
+        return moveTo(vasyan, goal, budgets, GROUND_SPEED);
+    }
+
+    /**
+     * Moves toward {@code goal} at a caller-chosen speed. Combat and follow pass a faster
+     * speed (they previously trotted at 2.5); gather/pathfind use the default ground speed.
+     *
+     * @param vasyan  bot to move
+     * @param goal    goal to reach; must not be null
+     * @param budgets time/scope budgets owned by the CALLER; never stored
+     * @param speed   navigation speed to steer at
+     * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
+     */
+    public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets,
+                                     double speed) {
         Objects.requireNonNull(vasyan, "vasyan");
         Objects.requireNonNull(goal, "goal");
         Objects.requireNonNull(budgets, "budgets");
+        if (speed <= 0) {
+            throw new IllegalArgumentException("speed must be > 0, got " + speed);
+        }
 
         BlockPos target = resolveTarget(goal, vasyan.blockPosition());
         vasyan.setFlying(false);
         vasyan.getNavigation().moveTo(target.getX() + CENTER_OFFSET, target.getY(),
-            target.getZ() + CENTER_OFFSET, GROUND_SPEED);
-        VasyanMod.LOGGER.info("Vasyan '{}': moveTo {}, steering navigation to {}",
-            vasyan.getVasyanName(), goal.describe(), target.toShortString());
+            target.getZ() + CENTER_OFFSET, speed);
+        VasyanMod.LOGGER.info("Vasyan '{}': moveTo {} @{} steering to {}",
+            vasyan.getVasyanName(), goal.describe(), speed, target.toShortString());
         return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS);
     }
 

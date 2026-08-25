@@ -103,7 +103,8 @@ public class FollowPlayerAction extends BaseAction {
             ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
-        followMonitor = VasyanPathing.moveTo(vasyan, VasyanGoal.near(playerBlock, 2), followBudgets);
+        followMonitor = VasyanPathing.moveTo(vasyan, VasyanGoal.near(playerBlock, 2),
+            followBudgets, FOLLOW_NAV_SPEED);
     }
 
     /** Rebuilds ONLY the time budgets (no navigation change) after a think-budget expiry. */
@@ -127,6 +128,8 @@ public class FollowPlayerAction extends BaseAction {
 
     /** Distance the player must move from the routed goal before a fresh route starts. */
     private static final double FOLLOW_REPLAN_DISTANCE = 4.0;
+    /** Navigation speed while keeping up with the player. */
+    private static final double FOLLOW_NAV_SPEED = 1.8;
 
     private void findPlayer() {
         java.util.List<? extends Player> players = vasyan.level().players();

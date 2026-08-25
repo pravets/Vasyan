@@ -259,4 +259,33 @@ class PathMonitorTest {
         assertThrows(IllegalArgumentException.class, () -> new PathMonitor(goal, 40, -1));
         assertThrows(IllegalArgumentException.class, () -> new PathMonitor(goal, 40, 3, -1));
     }
+
+    @Test
+    void movingBotIsNeverStalled_NoEscalationNoMatterHowLong() {
+        var m = monitor(40, 3);
+
+        // A bot that keeps advancing must never accumulate a stall window: over
+        // many ticks of forward motion output stays CONTINUE and never escalates
+        // to a replan or the recovery ladder (regression for review #39).
+        for (int x = 1; x <= 120; x++) {
+            BlockPos pos = new BlockPos(x, 64, 0);
+            assertEquals(PathMonitor.Decision.CONTINUE,
+                m.onTick(pos, false, true, true, true), "moving at x=" + x);
+        }
+        assertFalse(m.finished());
+    }
+
+    @Test
+    void stationaryBotStillStalls_AfterMovingWindowCloses() {
+        var m = monitor(40, 3);
+
+        // Move a bit (progress), then stop: stall accumulation starts only once
+        // the bot is stationary again.
+        assertEquals(PathMonitor.Decision.CONTINUE,
+            m.onTick(new BlockPos(1, 64, 0), false, true, true, true));
+        for (int i = 1; i < 40; i++) {
+            assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, false, true, true, true));
+        }
+        assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, false, true, true, true));
+    }
 }

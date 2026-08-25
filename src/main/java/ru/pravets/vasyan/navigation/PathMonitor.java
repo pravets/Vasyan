@@ -61,6 +61,8 @@ public final class PathMonitor {
     private int navDoneStallCounter;
     private int replansUsed;
     private int navDoneReplansUsed;
+    /** Last observed bot cell; a change since then counts as forward motion. */
+    private BlockPos lastStallPos;
 
     /**
      * Which ladder step the monitor currently sits on. LADDER_ENTRY means stall escalations
@@ -139,6 +141,17 @@ public final class PathMonitor {
             return Decision.GIVE_UP;
         }
         if (goal.hasReached(botPos)) {
+            resetWindow();
+            return Decision.CONTINUE;
+        }
+        // Real forward motion is progress: a walking bot is never "stalled", no
+        // matter how long it takes. Only a stationary bot accumulates the stall
+        // window (otherwise a >2s walk would fire a replan every 40 ticks and then
+        // a dig/scaffold/hop ladder on flat ground - review #39).
+        boolean moved = lastStallPos != null && !botPos.equals(lastStallPos);
+        lastStallPos = botPos;
+        if (moved) {
+            step = Step.LADDER_ENTRY;
             resetWindow();
             return Decision.CONTINUE;
         }
