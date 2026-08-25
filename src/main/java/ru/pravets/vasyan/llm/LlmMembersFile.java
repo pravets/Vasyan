@@ -48,7 +48,20 @@ public final class LlmMembersFile {
 
     private LlmMembersFile() {}
 
+    /**
+     * Effective per-member settings parsed from the members file. Every field
+     * may be null/blank - meaning "not overridden here, fall through to the
+     * next resolution level" (Forge member section, shared llm.*, preset).
+     *
+     * @param baseUrl endpoint base, e.g. {@code https://llm.example.com/v1}
+     * @param apiKey  bearer token sent as {@code Authorization} header
+     * @param model   model id passed to the provider's chat completions API
+     */
     public record MemberSettings(String baseUrl, String apiKey, String model) {
+        /**
+         * True when at least one field is set - i.e. this file contributes
+         * anything at all for this member.
+         */
         public boolean hasAny() {
             return isSet(baseUrl) || isSet(apiKey) || isSet(model);
         }
@@ -57,11 +70,20 @@ public final class LlmMembersFile {
         }
     }
 
-    /** Loaded lazily once per JVM; call {@link #reload()} after manual edits + /vasyan reload. */
+    /**
+     * Settings for the given member id (case-insensitive), or null when the
+     * members file has no section for it.
+     */
     public static MemberSettings get(String memberId) {
         return cache.get(memberId.toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * Re-reads {@code config/vasyan-llm-members.toml} and atomically replaces
+     * the cached settings map. Called once during mod construction; call again
+     * after manual edits to apply them without a restart. A parse failure
+     * keeps the previously loaded values and logs an error.
+     */
     public static synchronized void reload() {
         Path file = FMLPaths.CONFIGDIR.get().resolve(FILE_NAME);
         if (!Files.exists(file)) {

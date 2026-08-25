@@ -124,20 +124,19 @@ public class ProviderChainClient implements AsyncLLMClient {
                         notifySwitch(head.getProviderId(), true, switched);
                         return CompletableFuture.completedFuture(response);
                     })
-                    .exceptionally(throwable -> {
+                    .exceptionallyCompose(throwable -> {
                         // Probe itself threw (network error etc.): same-request
                         // fallback must still proceed to the active backup.
+                        // Non-blocking: exceptionallyCompose chains the walk
+                        // without parking this thread (a .get() here could
+                        // deadlock a single-threaded executor shared with the
+                        // backup client).
                         markFailure(0);
+                        Throwable cause = throwable instanceof java.util.concurrent.CompletionException ce && ce.getCause() != null
+                            ? ce.getCause() : throwable;
                         LOGGER.debug("[chain] recovery probe of '{}' threw: {}",
-                            head.getProviderId(),
-                            throwable instanceof java.util.concurrent.CompletionException ce && ce.getCause() != null
-                                ? ce.getCause().getMessage()
-                                : throwable.getMessage());
-                        try {
-                            return walk(prompt, params, startIndex).get();
-                        } catch (Exception e) {
-                            throw new java.util.concurrent.CompletionException(e);
-                        }
+                            head.getProviderId(), cause.getMessage());
+                        return walk(prompt, params, startIndex);
                     });
             }
             // Lost the race: serve via the normal walk.

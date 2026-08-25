@@ -132,15 +132,21 @@ public class TaskPlanner {
             if (id.isEmpty()) {
                 continue;
             }
-            if (!LLMProviders.isValid(id)) {
+            boolean presetId = LLMProviders.isValid(id);
+            var fileSettings = LlmMembersFile.get(id);
+            if (!presetId && (fileSettings == null || !fileSettings.hasAny())) {
+                // Not a preset AND no settings in the mod-owned members file:
+                // nothing to route to. Presets need no entry at all; arbitrary
+                // ids are allowed ONLY through vasyan-llm-members.toml with at
+                // least a baseUrl.
                 VasyanMod.LOGGER.warn(
-                    "providerChain: unknown provider '{}' - skipping. " +
-                    "Member sections exist only for presets: openai, groq, gemini, ollama, " +
-                    "lmstudio, opencode-go, custom. For your own endpoint use 'custom' in the " +
-                    "chain and configure it under [llm.members.custom] (baseUrl/apiKey/model). " +
-                    "NOTE: Forge REMOVES settings under any other [llm.members.<name>] section " +
-                    "on startup - they are not part of the mod's config schema.",
-                    id);
+                    "providerChain: unknown provider '{}' - skipping. Either use a preset id " +
+                    "(openai, groq, gemini, deepseek, openrouter, neuraldeep, ollama, lmstudio, " +
+                    "opencode-go, routerai, cloud-ru-fm, selectel-router, tokenra, custom) or add " +
+                    "a [{}] section with baseUrl to config/vasyan-llm-members.toml. NOTE: Forge " +
+                    "REMOVES [llm.members.<name>] sections for non-preset names from " +
+                    "vasyan-common.toml on startup - put custom endpoints in the members file.",
+                    id, id);
                 continue;
             }
             if (containsId(members, id)) {
@@ -160,8 +166,7 @@ public class TaskPlanner {
                 // Resolution: mod-owned vasyan-llm-members.toml (never wiped by
                 // Forge's config corrector, any member name allowed) ->
                 // [llm.members.<id>] Forge section (preset ids only) -> shared llm.* fields.
-                var fileSettings = LlmMembersFile.get(id);
-                VasyanConfig.MemberSection section = memberSection(id);
+                var section = memberSection(id);
                 String memberKey = firstNonEmpty(
                     fileSettings != null ? fileSettings.apiKey() : null,
                     firstNonEmpty(section.apiKey().get(), VasyanConfig.LLM_API_KEY.get()));
@@ -181,7 +186,10 @@ public class TaskPlanner {
                     VasyanConfig.TEMPERATURE.get(),
                     VasyanConfig.LLM_JSON_MODE.get(),
                     VasyanConfig.LLM_TIMEOUT_SECONDS.get());
-                if (LLMProviders.requiresKey(id) && !base.hasApiKey()) {
+                if (!presetId) {
+                    VasyanMod.LOGGER.info("providerChain: dynamic provider '{}' from vasyan-llm-members.toml", id);
+                }
+                if (LLMProviders.isValid(id) && LLMProviders.requiresKey(id) && !base.hasApiKey()) {
                     VasyanMod.LOGGER.warn("providerChain: provider '{}' requires an API key " +
                         "but neither llm.members.{}.apiKey nor llm.apiKey is set - " +
                         "its calls will fail until a key is configured.", id, id);
@@ -224,7 +232,12 @@ public class TaskPlanner {
         return v != null && !v.isBlank();
     }
 
-    /** Per-provider override section for the given chain member id. Public: used by /vasyan providers health checks. */
+    /**
+     * Per-provider override section for the given chain member id. Public:
+     * used by /vasyan providers health checks. Ids that are not presets map
+     * to {@code MEMBER_CUSTOM}; for such ids real values are expected in
+     * vasyan-llm-members.toml instead (see {@link LlmMembersFile#get}).
+     */
     public static VasyanConfig.MemberSection memberSection(String id) {
         return switch (id) {
             case LLMProviders.OPENAI -> VasyanConfig.MEMBER_OPENAI;
