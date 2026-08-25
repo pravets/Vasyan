@@ -548,7 +548,11 @@ def test_pathfinding_scenarios(workdir, jar_path):
         target_ax = wx + 14
         reached, teleported, dug = goto(target_ax, PLAT_Y + 1, wz, 240)
         if not reached:
-            print("  [FAIL] river crossing: bot did not reach the far side in time")
+            pos = bot_pos()
+            with open(log_path, "r", errors="replace") as f:
+                diag = f.read()
+            pretrigger = "идёт к" in diag
+            print(f"  [FAIL] river crossing: bot_pos={pos}, pre-trigger fired={pretrigger}")
             return 1
         if teleported:
             print("  [FAIL] river crossing used hop-teleport instead of swimming")
