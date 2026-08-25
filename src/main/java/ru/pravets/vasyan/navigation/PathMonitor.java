@@ -194,8 +194,13 @@ public final class PathMonitor {
             navDoneReplansUsed++;
             return Decision.REPLAN;
         }
-        finish();
-        return Decision.GIVE_UP;
+        // Paced replans are exhausted, but the fallback ladder must still run:
+        // hand control to the stall ladder starting at DIG_THROUGH (the main
+        // replan budget is pre-spent so the ladder entry jumps straight past
+        // further replans). GIVE_UP only after the ladder itself is exhausted.
+        this.replansUsed = Math.max(replansUsed, maxReplans);
+        resetWindow();
+        return escalate(true, true);
     }
 
     /**

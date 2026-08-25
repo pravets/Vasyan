@@ -138,14 +138,14 @@ class PathMonitorTest {
             assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, true, false, true, true),
                     "navDone replan #" + (i + 1) + " fires after the full stall window");
         }
-        // The 11th window ends in GIVE_UP (navDoneReplans exhausted): 39 paced
-        // CONTINUEs, then GIVE_UP instead of an 11th replan.
+        // The 11th window ends the paced replan budget and hands over to the
+        // fallback ladder: with canDig=true the first ladder step is DIG_THROUGH.
         for (int t = 1; t < 40; t++) {
             assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true));
         }
-        assertEquals(PathMonitor.Decision.GIVE_UP, m.onTick(BOT, true, false, true, true),
-                "11th paced navDone-outside-goal exhausts navDoneReplans");
-        assertTrue(m.finished());
+        assertEquals(PathMonitor.Decision.DIG_THROUGH, m.onTick(BOT, true, false, true, true),
+                "after navDoneReplans are exhausted the ladder starts with DIG_THROUGH");
+        assertFalse(m.finished());
     }
 
     @Test
