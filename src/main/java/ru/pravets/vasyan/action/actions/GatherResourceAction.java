@@ -374,8 +374,9 @@ public class GatherResourceAction extends BaseAction {
         }
         // New route target: fresh goal, monitor and budgets for this attempt -
         // the replacement of the old per-target stall-state reset. A mine
-        // target wants SIDE ADJACENCY (the bot must stand beside the block to
-        // break it); a look-out station is reached within a small radius.
+        // target uses near() 3D-Chebyshev so ore/wood above or below the bot's
+        // feet are reachable (strict side-adjacency would make those unreachable);
+        // a look-out station is reached within a small radius.
         if (!routeTarget.equals(lastRouteTarget)) {
             lastRouteTarget = routeTarget;
             routeStartPos = vasyan.blockPosition();

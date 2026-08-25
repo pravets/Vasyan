@@ -109,12 +109,11 @@ public final class VasyanPathing {
         }
 
         BlockPos target = resolveTarget(goal, vasyan.blockPosition());
-        vasyan.setFlying(false);
-        vasyan.getNavigation().moveTo(target.getX() + CENTER_OFFSET, target.getY(),
-            target.getZ() + CENTER_OFFSET, speed);
+        steerTo(vasyan, target, speed);
         VasyanMod.LOGGER.info("Vasyan '{}': moveTo {} @{} steering to {}",
             vasyan.getVasyanName(), goal.describe(), speed, target.toShortString());
-        return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS);
+        return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS,
+            PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed);
     }
 
     /**
@@ -153,7 +152,7 @@ public final class VasyanPathing {
             case CONTINUE -> {
                 // steady progress or goal reached: nothing to do
             }
-            case REPLAN -> replan(vasyan, monitor.goal());
+            case REPLAN -> replan(vasyan, monitor);
             case DIG_THROUGH -> digThrough(vasyan, monitor, diggable);
             case PLACE_SCAFFOLD -> placeScaffold(vasyan, monitor);
             case HOP_TELEPORT -> hopTeleport(vasyan, monitor);
@@ -162,13 +161,27 @@ public final class VasyanPathing {
     }
 
     /** REPLAN: back to ground movement and rebuild the path to the goal anchor. */
-    private static void replan(VasyanEntity vasyan, VasyanGoal goal) {
-        BlockPos target = resolveTarget(goal, vasyan.blockPosition());
-        vasyan.setFlying(false);
-        vasyan.getNavigation().moveTo(target.getX() + CENTER_OFFSET, target.getY(),
-            target.getZ() + CENTER_OFFSET, GROUND_SPEED);
+    private static void replan(VasyanEntity vasyan, PathMonitor monitor) {
+        BlockPos target = resolveTarget(monitor.goal(), vasyan.blockPosition());
+        steerTo(vasyan, target, monitor.navSpeed());
         VasyanMod.LOGGER.debug("Vasyan '{}': REPLAN towards {} ({})",
-            vasyan.getVasyanName(), goal.describe(), target.toShortString());
+            vasyan.getVasyanName(), monitor.goal().describe(), target.toShortString());
+    }
+
+    /**
+     * Steers ground navigation to {@code target}, resetting airborne state while PRESERVING an
+     * already-active building-invulnerability (combat relies on it; {@code setFlying(false)}
+     * would otherwise clear it as a side effect). Then re-applies the flag so combat keeps
+     * protection across moveTo AND every replan.
+     */
+    private static void steerTo(VasyanEntity vasyan, BlockPos target, double speed) {
+        boolean wasInvulnerable = vasyan.isInvulnerable();
+        vasyan.setFlying(false);
+        if (wasInvulnerable) {
+            vasyan.setInvulnerableBuilding(true);
+        }
+        vasyan.getNavigation().moveTo(target.getX() + CENTER_OFFSET, target.getY(),
+            target.getZ() + CENTER_OFFSET, speed);
     }
 
     /**

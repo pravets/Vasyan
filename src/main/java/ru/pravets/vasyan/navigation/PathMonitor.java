@@ -50,11 +50,14 @@ public final class PathMonitor {
     public static final int DEFAULT_MAX_REPLANS = 3;
     /** Default number of immediate "nav done but goal not reached" replans. */
     public static final int DEFAULT_NAV_DONE_REPLANS = 10;
+    /** Default navigation speed carried into replans (matches VasyanPathing.GROUND_SPEED). */
+    public static final double DEFAULT_NAV_SPEED = 1.0;
 
     private final VasyanGoal goal;
     private final int stallTicks;
     private final int maxReplans;
     private final int navDoneReplans;
+    private final double navSpeed;
 
     private int stallCounter;
     /** Ticks spent waiting since the last navDone-triggered replan (pacing). */
@@ -105,6 +108,20 @@ public final class PathMonitor {
      * @param navDoneReplans immediate off-goal replans after navigation finishes early
      */
     public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans) {
+        this(goal, stallTicks, maxReplans, navDoneReplans, DEFAULT_NAV_SPEED);
+    }
+
+    /**
+     * Creates a monitor with fully explicit budgets and a navigation speed.
+     *
+     * @param goal           goal the bot is trying to reach
+     * @param stallTicks     stalled ticks without progress tolerated before each escalation
+     * @param maxReplans     stall-triggered replans allowed before the fallback ladder starts
+     * @param navDoneReplans immediate off-goal replans after navigation finishes early
+     * @param navSpeed       speed replanning should steer at (so combat/follow keep their pace)
+     */
+    public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
+                       double navSpeed) {
         if (goal == null) {
             throw new IllegalArgumentException("goal must not be null");
         }
@@ -117,10 +134,14 @@ public final class PathMonitor {
         if (navDoneReplans < 0) {
             throw new IllegalArgumentException("navDoneReplans must be non-negative: " + navDoneReplans);
         }
+        if (navSpeed <= 0) {
+            throw new IllegalArgumentException("navSpeed must be > 0: " + navSpeed);
+        }
         this.goal = goal;
         this.stallTicks = stallTicks;
         this.maxReplans = maxReplans;
         this.navDoneReplans = navDoneReplans;
+        this.navSpeed = navSpeed;
     }
 
     /**
@@ -187,6 +208,11 @@ public final class PathMonitor {
     /** Goal this monitor drives towards. */
     public VasyanGoal goal() {
         return goal;
+    }
+
+    /** Navigation speed replans should steer at (combat/follow keep their pace). */
+    public double navSpeed() {
+        return navSpeed;
     }
 
     /**
