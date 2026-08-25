@@ -63,6 +63,10 @@ public class VasyanMod {
         COMMAND_ARGUMENT_TYPES.register(modEventBus);
         VasyanMenus.MENUS.register(modEventBus);
 
+        // Quarantine a syntactically broken config BEFORE Forge tries to load
+        // it (a broken file would otherwise crash the game during mod loading).
+        VasyanConfig.quarantineUnparseableFile();
+
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, VasyanConfig.SPEC);
 
         modEventBus.addListener(this::commonSetup);

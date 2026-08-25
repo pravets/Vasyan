@@ -5,6 +5,23 @@
 # Active provider: openai | groq | gemini | ollama | lmstudio | opencode-go | custom
 provider = "ollama"
 
+# Provider failover chain, in priority order. Empty = single-provider mode.
+# Values MUST be quoted strings.
+#providerChain = ["opencode-go", "ollama"]
+providerChain = []
+
+# Seconds before the chain retries the highest-priority provider after a failover.
+failoverRetrySeconds = 60
+
+# Per-provider overrides for chain members. Unset fields fall back to
+# the presets or the shared llm.* values above.
+#[llm.members.opencode-go]
+#apiKey = ""
+#model = ""
+#[llm.members.ollama]
+#baseUrl = ""
+#model = ""
+
 # Base URL override. Empty = preset default:
 #   openai      -> https://api.openai.com/v1
 #   groq        -> https://api.groq.com/openai/v1

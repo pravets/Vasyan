@@ -6,6 +6,48 @@ import ru.pravets.vasyan.llm.LLMProviders;
 import java.util.List;
 
 public class VasyanConfig {
+
+    /**
+     * Pre-flight check: parse the user's config file BEFORE Forge does. A
+     * syntactically broken file (e.g. unquoted strings in providerChain)
+     * would otherwise throw ConfigLoadingException during mod loading and
+     * crash the game to desktop. Instead the broken file is preserved next to
+     * the original with a .broken-<timestamp> suffix and Forge generates a
+     * fresh default config - the game starts and the user can port their
+     * settings over.
+     *
+     * Must run before {@code registerConfig} in the mod constructor.
+     */
+    public static void quarantineUnparseableFile() {
+        try {
+            java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
+            java.nio.file.Path file = dir.resolve("vasyan-common.toml");
+            if (!java.nio.file.Files.exists(file)) {
+                return;
+            }
+            var parser = new com.electronwill.nightconfig.toml.TomlParser();
+            // Parse errors propagate here as ParsingException.
+            parser.parse(java.nio.file.Files.newBufferedReader(file));
+        } catch (Exception parseFailure) {
+            try {
+                java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
+                java.nio.file.Path file = dir.resolve("vasyan-common.toml");
+                String stamp = java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+                java.nio.file.Path backup = dir.resolve("vasyan-common.toml.broken-" + stamp);
+                java.nio.file.Files.move(file, backup);
+                org.slf4j.LoggerFactory.getLogger("VasyanMod").error(
+                    "vasyan-common.toml is invalid ({}). Moved to {} - a default config will be generated. " +
+                    "Port your settings over manually.",
+                    parseFailure.getMessage(), backup.getFileName());
+            } catch (Exception quarantineFailure) {
+                // Nothing more we can do safely; let Forge surface the original error.
+                org.slf4j.LoggerFactory.getLogger("VasyanMod").error(
+                    "Failed to quarantine broken vasyan-common.toml", quarantineFailure);
+            }
+        }
+    }
+
     public static final ForgeConfigSpec SPEC;
     public static final ForgeConfigSpec.ConfigValue<String> AI_PROVIDER;
     /**
