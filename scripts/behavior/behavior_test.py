@@ -593,6 +593,18 @@ def test_pathfinding_scenarios(workdir, jar_path):
         print(f"  wall fill response: {fill_resp!r}")
         block_check = rcon.command(f"data get block {wall_x} {PLAT_Y + 1} {wz} Name")
         print(f"  wall block check: {block_check!r}")
+        # Diagnose the paradox: bot_pos lands INSIDE the wall column without digs.
+        time.sleep(3)
+        pos_before = bot_pos()
+        print(f"  bot pos after wall placed: {pos_before}")
+        for label, (cx, cy, cz) in {
+            "bot cell": (pos_before[0], PLAT_Y + 1, pos_before[2]),
+            "bot head": (pos_before[0], PLAT_Y + 2, pos_before[2]),
+            "east of bot": (pos_before[0] + 1, PLAT_Y + 1, pos_before[2]),
+            "wall cell z0": (wall_x, PLAT_Y + 1, wz),
+        }.items():
+            resp = rcon.command(f"data get block {cx} {cy} {cz}")
+            print(f"  block {label} ({cx},{cy},{cz}): {resp[:120]!r}")
         target_cx = wx + 34
         reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
