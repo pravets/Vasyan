@@ -566,7 +566,9 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- B) Adjacent stand ----
         print("Scenario B: adjacent stand beside obsidian...")
-        block_b = (wx + 5, PLAT_Y + 1, wz + 6)
+        # Ahead of the river crossing (bot is now at ~wx+14): obsidian to the
+        # south-east so the approach does not re-cross the water channel.
+        block_b = (wx + 18, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
         reached, teleported, dug, pretrigger_fired = goto(block_b[0], block_b[1], block_b[2], 120)
         pos = bot_pos()
@@ -582,9 +584,10 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- C) Wall dig-through ----
         print("Scenario C: dig through dirt wall...")
-        wall_x = wx + 12
+        # Ahead of scenario B's block (bot is now near wx+18): wall at wx+26.
+        wall_x = wx + 26
         rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 1} {wall_x} {PLAT_Y + 2} {wz + 1} minecraft:dirt")
-        target_cx = wx + 22
+        target_cx = wx + 34
         reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 180)
         if not reached:
             print("  [FAIL] wall dig-through: did not reach the far side in time")
