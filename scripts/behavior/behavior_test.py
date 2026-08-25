@@ -593,7 +593,13 @@ def test_pathfinding_scenarios(workdir, jar_path):
         target_cx = wx + 34
         reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
-            print("  [FAIL] wall dig-through: did not reach the far side in time")
+            pos = bot_pos()
+            with open(log_path, "r", errors="replace") as f:
+                f.seek(offset_before := os.path.getsize(log_path) - min(200000, os.path.getsize(log_path)))
+                seg = f.read()
+            digs = len(re.findall(r"dug through", seg))
+            skips = len(re.findall(r"DIG_THROUGH skipped", seg))
+            print(f"  [FAIL] wall dig-through: bot_pos={pos}, digs={digs}, dig_skips={skips}")
             return 1
         if not dug:
             print("  [FAIL] wall dig-through: reached target but no DIG_THROUGH evidence in log")
