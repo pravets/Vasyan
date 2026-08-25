@@ -515,11 +515,11 @@ def test_pathfinding_scenarios(workdir, jar_path):
         time.sleep(3)
 
         def bot_pos():
-            # Vanilla tp-to-self trick: 'tp <entity> <entity>' is invalid, so
-            # query through a no-op absolute tp to its own coordinates is not
-            # possible without knowing them; instead use 'data get entity'.
+            # '/data get entity <uuid> Pos' answers with a short line:
+            # '<name> has the following entity data: [x.d, y.d, z.d]'
             resp = rcon.command(f"data get entity {nav_uuid} Pos")
-            m = re.search(r"Pos:\s*\[([-\d.]+)[dD]?,\s*([-\d.]+)[dD]?,\s*([-\d.]+)[dD]?\]", resp)
+            m = re.search(
+                r"\[(-?[\d.]+)[dD]?,\s*(-?[\d.]+)[dD]?,\s*(-?[\d.]+)[dD]?\]", resp)
             if not m:
                 return None
             x, y, z = map(float, m.groups())
