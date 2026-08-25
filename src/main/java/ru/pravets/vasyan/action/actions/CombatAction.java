@@ -62,12 +62,7 @@ public class CombatAction extends BaseAction {
         ticksRunning++;
 
         if (ticksRunning > MAX_TICKS) {
-            // Combat complete - clean up and disable invulnerability
-            vasyan.setInvulnerableBuilding(false);
-            vasyan.setSprinting(false);
-            vasyan.getNavigation().stop();
-            ru.pravets.vasyan.VasyanMod.LOGGER.info("Vasyan '{}' combat complete, invulnerability disabled",
-                vasyan.getVasyanName());
+            finishCombat("Combat complete");
             result = ActionResult.success("Combat complete");
             return;
         }
@@ -87,6 +82,8 @@ public class CombatAction extends BaseAction {
         vasyan.setSprinting(true);
 
         if (distance <= ATTACK_RANGE) {
+            // Park at the target instead of drifting along a stale route path.
+            vasyan.getNavigation().stop();
             vasyan.doHurtTarget(target);
             vasyan.swing(net.minecraft.world.InteractionHand.MAIN_HAND, true);
 
@@ -107,14 +104,25 @@ public class CombatAction extends BaseAction {
             long nowNano = System.nanoTime();
             routeBudgets = routeBudgets.nextTick(nowNano);
             if (routeBudgets.thinkExpired(nowNano)) {
+                finishCombat("Cannot reach combat target");
                 result = ActionResult.failure("Cannot reach combat target");
                 return;
             }
             VasyanPathing.enforce(vasyan, routeMonitor);
             if (routeMonitor.finished()) {
+                finishCombat("Cannot reach combat target");
                 result = ActionResult.failure("Cannot reach combat target");
             }
         }
+    }
+
+    /** Cleans up combat state (invulnerability, sprint, nav) before any exit. */
+    private void finishCombat(String reason) {
+        vasyan.setInvulnerableBuilding(false);
+        vasyan.setSprinting(false);
+        vasyan.getNavigation().stop();
+        ru.pravets.vasyan.VasyanMod.LOGGER.info("Vasyan '{}' combat finished: {}",
+            vasyan.getVasyanName(), reason);
     }
 
     /** Starts a fresh monitored route toward the given target block. */
