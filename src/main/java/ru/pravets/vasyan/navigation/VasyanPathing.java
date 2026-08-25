@@ -116,7 +116,7 @@ public final class VasyanPathing {
 
         PathNavigation nav = vasyan.getNavigation();
         boolean navDone = nav.isDone();
-        BlockPos diggable = findDiggableAhead(vasyan);
+        BlockPos diggable = findDiggableAhead(vasyan, monitor.goal());
         boolean canDig = diggable != null;
         boolean canPlace = findScaffoldStack(vasyan) != null;
 
@@ -181,7 +181,7 @@ public final class VasyanPathing {
             VasyanMod.LOGGER.warn("Vasyan '{}': PLACE_SCAFFOLD skipped, no solid block item", name);
             return;
         }
-        BlockPos placePos = scaffoldPosition(vasyan);
+        BlockPos placePos = scaffoldPosition(vasyan, monitor.goal());
         if (placePos == null) {
             VasyanMod.LOGGER.warn("Vasyan '{}': PLACE_SCAFFOLD skipped, no open spot under/ahead", name);
             return;
@@ -268,14 +268,30 @@ public final class VasyanPathing {
 
     /**
      * Position directly ahead along the movement direction: the next path node while a path
-     * is being followed, otherwise the neighbouring block the entity currently faces.
+     * is being followed. When navigation is DONE (e.g. the path dead-ends right before an
+     * obstacle), the dead path's last node is the bot's own cell and would never be diggable,
+     * so the direction towards the goal anchor is used instead.
      */
-    private static BlockPos aheadPosition(VasyanEntity vasyan) {
+    private static BlockPos aheadPosition(VasyanEntity vasyan, VasyanGoal goal) {
         Path path = vasyan.getNavigation().getPath();
-        if (path != null && path.getNextNodeIndex() < path.getNodeCount()) {
+        if (path != null && !vasyan.getNavigation().isDone()
+                && path.getNextNodeIndex() < path.getNodeCount()) {
             return path.getNextNodePos();
         }
-        return vasyan.blockPosition().relative(vasyan.getDirection());
+        BlockPos target = resolveTarget(goal, vasyan.blockPosition());
+        int dx = Integer.compare(target.getX(), vasyan.blockPosition().getX());
+        int dz = Integer.compare(target.getZ(), vasyan.blockPosition().getZ());
+        net.minecraft.core.Direction dir;
+        int absDx = Math.abs(target.getX() - vasyan.blockPosition().getX());
+        int absDz = Math.abs(target.getZ() - vasyan.blockPosition().getZ());
+        if (dx != 0 && (absDx >= absDz || dz == 0)) {
+            dir = dx > 0 ? net.minecraft.core.Direction.EAST : net.minecraft.core.Direction.WEST;
+        } else if (dz != 0) {
+            dir = dz > 0 ? net.minecraft.core.Direction.SOUTH : net.minecraft.core.Direction.NORTH;
+        } else {
+            dir = vasyan.getDirection();
+        }
+        return vasyan.blockPosition().relative(dir);
     }
 
     /**
@@ -283,8 +299,8 @@ public final class VasyanPathing {
      * {@code null} when the way is clear or nothing may be broken.
      */
     @Nullable
-    private static BlockPos findDiggableAhead(VasyanEntity vasyan) {
-        BlockPos ahead = aheadPosition(vasyan);
+    private static BlockPos findDiggableAhead(VasyanEntity vasyan, VasyanGoal goal) {
+        BlockPos ahead = aheadPosition(vasyan, goal);
         Level level = vasyan.level();
         if (isBreakable(level, ahead)) {
             return ahead;
@@ -310,13 +326,13 @@ public final class VasyanPathing {
      * @return an open (air / liquid / replaceable) position, or {@code null} if none
      */
     @Nullable
-    private static BlockPos scaffoldPosition(VasyanEntity vasyan) {
+    private static BlockPos scaffoldPosition(VasyanEntity vasyan, VasyanGoal goal) {
         Level level = vasyan.level();
         BlockPos below = vasyan.blockPosition().below();
         if (isOpen(level, below)) {
             return below;
         }
-        BlockPos ahead = aheadPosition(vasyan);
+        BlockPos ahead = aheadPosition(vasyan, goal);
         return isOpen(level, ahead) ? ahead : null;
     }
 
