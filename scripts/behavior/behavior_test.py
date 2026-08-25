@@ -589,7 +589,10 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # Full-width wall (platform edge to edge, 3 high): no way around, the
         # monitor MUST use its ladder - dig first, teleport as last resort.
         wall_x = wx + 26
-        rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 14} {wall_x} {PLAT_Y + 3} {wz + 14} minecraft:dirt")
+        fill_resp = rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 14} {wall_x} {PLAT_Y + 3} {wz + 14} minecraft:dirt")
+        print(f"  wall fill response: {fill_resp!r}")
+        block_check = rcon.command(f"data get block {wall_x} {PLAT_Y + 1} {wz} Name")
+        print(f"  wall block check: {block_check!r}")
         target_cx = wx + 34
         reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
