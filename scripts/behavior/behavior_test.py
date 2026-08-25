@@ -485,11 +485,30 @@ def test_pathfinding_scenarios(workdir, jar_path):
         if not pos_matches:
             print("  [FAIL] Navigator spawn position not found")
             return 1
-        base_x, base_y, base_z = map(float, pos_matches[-1])
-        bx, by, bz = int(base_x), int(base_y), int(base_z)
+        base_x, _, base_z = map(float, pos_matches[-1])
+        bx, bz = int(base_x), int(base_z)
         uuid_matches = re.findall(r"[Ss]pawned Vasyan: Navigator with UUID ([0-9a-f-]+)", log_text)
         nav_uuid = uuid_matches[-1]
-        print(f"  Navigator at ({bx}, {by}, {bz})")
+        print(f"  Navigator spawned at ({bx}, ?, {bz})")
+
+        # Build a DETERMINISTIC arena at a fixed height far from spawn: the
+        # bot's spawn Y is unpredictable (caves at -60 happen), so all three
+        # scenarios run on a hand-built platform instead of natural terrain.
+        # /fill keeps this to a handful of RCON commands.
+        PLAT_Y = 200          # floor level (bot stands on 200 -> feet in 201? No: blocks at y=200 are the floor surface; entity stands at y=201)
+        wx, wz = bx + 120, bz  # arena origin, far enough not to collide with earlier worlds
+        rcon.command(f"forceload add {wx >> 4} {wz >> 4}")
+        rcon.command(f"fill {wx - 4} {PLAT_Y} {wz - 14} {wx + 40} {PLAT_Y} {wz + 14} minecraft:smooth_stone")
+        rcon.command(f"fill {wx - 4} {PLAT_Y + 1} {wz - 14} {wx + 40} {PLAT_Y + 6} {wz + 14} minecraft:air")
+        # Walls so nobody wanders off the platform edge accidentally.
+        rcon.command(f"fill {wx - 5} {PLAT_Y + 1} {wz - 15} {wx + 41} {PLAT_Y + 3} {wz - 15} minecraft:smooth_stone")
+        rcon.command(f"fill {wx - 5} {PLAT_Y + 1} {wz + 15} {wx + 41} {PLAT_Y + 3} {wz + 15} minecraft:smooth_stone")
+        time.sleep(2)  # let the fill chunks settle
+        # Move the Navigator onto the platform.
+        start_x, start_z = wx + 2, wz
+        rcon.command(f"tp {nav_uuid} {start_x} {PLAT_Y + 1} {start_z}")
+        wait_for(log_path, r"Teleported", 30, "Navigator tp to platform")
+        time.sleep(3)
 
         def bot_pos():
             # Vanilla tp-to-self trick: 'tp <entity> <entity>' is invalid, so
@@ -522,26 +541,23 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- A) River crossing ----
         print("Scenario A: river crossing...")
-        # Channel across the path, 4 wide, from +6 to +9 in X, spanning Z -8..+8.
-        for cx in range(6, 10):
-            for cz in range(bz - 8, bz + 9):
-                rcon.command(f"setblock {bx + cx} {by - 1} {bz + (cz - bz)} air")
-                rcon.command(f"setblock {bx + cx} {by} {cz} water")
-                rcon.command(f"setblock {bx + cx} {by + 1} {cz} air")
-                rcon.command(f"setblock {bx + cx} {by + 2} {cz} air")
-        target_ax = bx + 14
-        reached, teleported, dug = goto(target_ax, by, bz, 180, forbid_teleport=True)
+        # Channel across the path, 4 wide (X +6..+9), spanning the platform.
+        # Floor at PLAT_Y becomes water surface; bot swims across it.
+        rcon.command(f"fill {wx + 6} {PLAT_Y} {wz - 13} {wx + 9} {PLAT_Y} {wz + 13} minecraft:water")
+        rcon.command(f"fill {wx + 6} {PLAT_Y + 1} {wz - 13} {wx + 9} {PLAT_Y + 4} {wz + 13} minecraft:air")
+        target_ax = wx + 14
+        reached, teleported, dug = goto(target_ax, PLAT_Y + 1, wz, 180)
         if not reached:
             print("  [FAIL] river crossing: bot did not reach the far side in time")
             return 1
         if teleported:
             print("  [FAIL] river crossing used hop-teleport instead of swimming")
             return 1
-        print(f"  -> crossed river to ({target_ax}, {by}, {bz}) without teleporting")
+        print(f"  -> crossed river to ({target_ax}, {PLAT_Y + 1}, {wz}) without teleporting")
 
         # ---- B) Adjacent stand ----
         print("Scenario B: adjacent stand beside obsidian...")
-        block_b = (bx + 5, by, bz + 6)
+        block_b = (wx + 5, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
         reached, teleported, dug = goto(block_b[0], block_b[1], block_b[2], 120)
         pos = bot_pos()
@@ -557,19 +573,17 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- C) Wall dig-through ----
         print("Scenario C: dig through dirt wall...")
-        wall_x = bx + 12
-        for wy in (by, by + 1):
-            for wz in range(bz - 1, bz + 2):
-                rcon.command(f"setblock {wall_x} {wy} {wz} minecraft:dirt")
-        target_cx = bx + 22
-        reached, teleported, dug = goto(target_cx, by, bz, 180)
+        wall_x = wx + 12
+        rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 1} {wall_x} {PLAT_Y + 2} {wz + 1} minecraft:dirt")
+        target_cx = wx + 22
+        reached, teleported, dug = goto(target_cx, PLAT_Y + 1, wz, 180)
         if not reached:
             print("  [FAIL] wall dig-through: did not reach the far side in time")
             return 1
         if not dug:
             print("  [FAIL] wall dig-through: reached target but no DIG_THROUGH evidence in log")
             return 1
-        print(f"  -> dug through the wall and reached ({target_cx}, {by}, {bz})")
+        print(f"  -> dug through the wall and reached ({target_cx}, {PLAT_Y + 1}, {wz})")
 
         # Cleanup: remove bot and blocks best-effort.
         rcon.command("vasyan remove Navigator")
