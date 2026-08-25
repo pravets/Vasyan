@@ -265,13 +265,17 @@ public class VasyanConfig {
         ForgeConfigSpec.ConfigValue<String> baseUrl) {
 
         static MemberSection define(ForgeConfigSpec.Builder builder, String providerId) {
-            return new MemberSection(
+            // Each member gets its own TOML subsection: [llm.members.<id>].
+            builder.push(providerId);
+            MemberSection section = new MemberSection(
                 builder.comment("API key override for '" + providerId + "'. Empty = shared llm.apiKey (or none).")
                     .define("apiKey", ""),
                 builder.comment("Model override for '" + providerId + "'. Empty = preset default or shared llm.model.")
                     .define("model", ""),
                 builder.comment("Base URL override for '" + providerId + "'. Empty = preset default or shared llm.baseUrl.")
                     .define("baseUrl", ""));
+            builder.pop();
+            return section;
         }
     }
 }

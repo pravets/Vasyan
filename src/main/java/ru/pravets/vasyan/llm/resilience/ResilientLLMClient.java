@@ -147,6 +147,18 @@ public class ResilientLLMClient implements AsyncLLMClient {
     }
 
     /**
+     * The underlying HTTP client, when this wrapper wraps an
+     * {@link ru.pravets.vasyan.llm.async.OpenAICompatibleClient}. Used by
+     * observability code that needs the concrete endpoint/model of a chain
+     * member (live health check, active model display). Null for other
+     * delegate types.
+     */
+    public ru.pravets.vasyan.llm.async.OpenAICompatibleClient unwrapOpenAiClient() {
+        return delegate instanceof ru.pravets.vasyan.llm.async.OpenAICompatibleClient openAi
+            ? openAi : null;
+    }
+
+    /**
      * Registers event listeners for circuit breaker state changes and other events.
      *
      * @param providerId Provider ID for logging

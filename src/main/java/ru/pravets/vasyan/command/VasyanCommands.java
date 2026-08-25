@@ -303,16 +303,22 @@ public class VasyanCommands {
         HEALTH_CHECK_EXECUTOR.execute(() -> {
             for (String memberId : memberIds) {
                 try {
-                    String base = LLMProviders.resolveBaseUrl(memberId, VasyanConfig.LLM_BASE_URL.get());
+                    // Per-member overrides first ([llm.members.<id>]), then the
+                    // shared llm.* values - same resolution as TaskPlanner uses.
+                    var section = TaskPlanner.memberSection(memberId);
+                    String memberBase = LLMProviders.resolveBaseUrl(memberId,
+                        firstNonBlank(section.baseUrl().get(), VasyanConfig.LLM_BASE_URL.get()));
+                    String memberKey = firstNonBlank(section.apiKey().get(), key);
+                    String memberModel = firstNonBlank(section.model().get(), VasyanConfig.LLM_MODEL.get());
                     OpenAICompatibleClient client = OpenAICompatibleClient.forProvider(
-                        memberId, base, key, VasyanConfig.LLM_MODEL.get(),
+                        memberId, memberBase, memberKey, memberModel,
                         VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),
                         VasyanConfig.LLM_JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
                     boolean healthy = client.checkHealth();
                     source.sendSuccess(() -> Component.literal(
                         "§eHealth [" + memberId + "]: "
                             + (healthy ? "§aONLINE" : "§cUNREACHABLE")
-                            + " §7(GET " + base + "/models)"), false);
+                            + " §7(GET " + memberBase + "/models)"), false);
                 } catch (Exception e) {
                     String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     source.sendSuccess(() -> Component.literal(
@@ -329,6 +335,11 @@ public class VasyanCommands {
             "§7 Set llm.provider and llm.providerChain in config/vasyan-common.toml to switch"), false);
 
         return 1;
+    }
+
+    /** First non-blank string, or null if both blank. */
+    private static String firstNonBlank(String a, String b) {
+        return a != null && !a.isBlank() ? a : b;
     }
 
     private static int spawnVasyan(CommandContext<CommandSourceStack> context) {

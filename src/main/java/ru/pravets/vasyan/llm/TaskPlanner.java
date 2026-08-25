@@ -180,8 +180,8 @@ public class TaskPlanner {
         return members.stream().anyMatch(m -> id.equals(m.getProviderId()));
     }
 
-    /** Per-provider override section for the given chain member id. */
-    private static VasyanConfig.MemberSection memberSection(String id) {
+    /** Per-provider override section for the given chain member id. Public: used by /vasyan providers health checks. */
+    public static VasyanConfig.MemberSection memberSection(String id) {
         return switch (id) {
             case LLMProviders.OPENAI -> VasyanConfig.MEMBER_OPENAI;
             case LLMProviders.GROQ -> VasyanConfig.MEMBER_GROQ;
@@ -452,8 +452,9 @@ public class TaskPlanner {
     public boolean pingProvider() {
         if (providerChain != null) {
             AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
-            if (active instanceof OpenAICompatibleClient openAiClient) {
-                return openAiClient.checkHealth();
+            OpenAICompatibleClient delegate = httpDelegateOf(active);
+            if (delegate != null) {
+                return delegate.checkHealth();
             }
             return active.isHealthy();
         }
@@ -470,8 +471,9 @@ public class TaskPlanner {
             : List.of(getBaseClient());
         Map<String, Boolean> result = new java.util.LinkedHashMap<>();
         for (AsyncLLMClient member : members) {
-            if (member instanceof OpenAICompatibleClient openAiClient) {
-                result.put(member.getProviderId(), openAiClient.checkHealth());
+            OpenAICompatibleClient delegate = httpDelegateOf(member);
+            if (delegate != null) {
+                result.put(member.getProviderId(), delegate.checkHealth());
             } else {
                 // Non-HTTP members: fall back to the cheap liveness signal.
                 result.put(member.getProviderId(), member.isHealthy());
@@ -482,6 +484,22 @@ public class TaskPlanner {
 
     private OpenAICompatibleClient getBaseClient() {
         return baseClient;
+    }
+
+    /**
+     * The concrete HTTP client behind a chain member (unwrapping
+     * {@code ResilientLLMClient} if needed), or null when the member is not an
+     * HTTP client. Without unwrapping, per-member model/baseUrl overrides and
+     * live health checks are invisible for every chain member.
+     */
+    private static OpenAICompatibleClient httpDelegateOf(AsyncLLMClient member) {
+        if (member instanceof OpenAICompatibleClient openAi) {
+            return openAi;
+        }
+        if (member instanceof ResilientLLMClient resilient) {
+            return resilient.unwrapOpenAiClient();
+        }
+        return null;
     }
 
     /**
@@ -505,8 +523,9 @@ public class TaskPlanner {
     public String getActiveModel() {
         if (providerChain != null) {
             AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
-            if (active instanceof OpenAICompatibleClient openAiClient) {
-                return openAiClient.getModel();
+            OpenAICompatibleClient delegate = httpDelegateOf(active);
+            if (delegate != null) {
+                return delegate.getModel();
             }
         }
         String model = VasyanConfig.LLM_MODEL.get();
@@ -522,8 +541,9 @@ public class TaskPlanner {
     public String getActiveBaseUrl() {
         if (providerChain != null) {
             AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
-            if (active instanceof OpenAICompatibleClient openAiClient) {
-                return openAiClient.getBaseUrl();
+            OpenAICompatibleClient delegate = httpDelegateOf(active);
+            if (delegate != null) {
+                return delegate.getBaseUrl();
             }
         }
         return LLMProviders.resolveBaseUrl(getActiveProvider(), VasyanConfig.LLM_BASE_URL.get());

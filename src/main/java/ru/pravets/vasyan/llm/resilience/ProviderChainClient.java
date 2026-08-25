@@ -177,8 +177,14 @@ public class ProviderChainClient implements AsyncLLMClient {
                         }
                         // Unusable = pattern-fallback or empty answer from
                         // this member's resilience layer; remember it as the
-                        // best-effort result and treat as a member failure.
-                        lastFallbackResponse[0] = response;
+                        // best-effort result ONLY if it has content (an empty
+                        // answer would just get discarded downstream anyway),
+                        // then treat as a member failure.
+                        if (response != null
+                                && response.getContent() != null
+                                && !response.getContent().isBlank()) {
+                            lastFallbackResponse[0] = response;
+                        }
                         markFailure(idx);
                         LOGGER.warn("[chain] member '{}' returned only a fallback response",
                             target.getProviderId());
