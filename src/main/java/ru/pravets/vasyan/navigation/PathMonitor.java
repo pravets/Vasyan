@@ -148,9 +148,15 @@ public final class PathMonitor {
         // matter how long it takes. Only a stationary bot accumulates the stall
         // window (otherwise a >2s walk would fire a replan every 40 ticks and then
         // a dig/scaffold/hop ladder on flat ground - review #39).
-        boolean moved = lastStallPos != null && !botPos.equals(lastStallPos);
+        //
+        // Progress means HORIZONTAL motion (X or Z changes). Vertical-only cell
+        // changes - water bobbing, current drift, being pushed - are not forward
+        // progress and must not reset the window; otherwise a bot bobbing at a
+        // shoreline would stall forever and navDone-replans could be starved.
+        boolean horizontallyMoved = lastStallPos != null
+            && (botPos.getX() != lastStallPos.getX() || botPos.getZ() != lastStallPos.getZ());
         lastStallPos = botPos;
-        if (moved) {
+        if (horizontallyMoved) {
             step = Step.LADDER_ENTRY;
             resetWindow();
             return Decision.CONTINUE;

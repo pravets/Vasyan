@@ -292,4 +292,21 @@ class PathMonitorTest {
         assertEquals(PathMonitor.Decision.REPLAN,
             m.onTick(new BlockPos(5, 64, 0), false, true, true, true));
     }
+
+    @Test
+    void verticalOnlyBobbingDoesNotCountAsProgress_NavDoneStillReplans() {
+        var m = monitor(40, 3);
+
+        // A bot bobbing up/down in water (Y cycling between two cells) is NOT
+        // moving forward: vertical-only cell changes must not reset the stall
+        // window, so the navDone replan still fires on schedule.
+        for (int i = 1; i < 40; i++) {
+            BlockPos bob = new BlockPos(0, 64 + (i % 2), 0);
+            assertEquals(PathMonitor.Decision.CONTINUE,
+                m.onTick(bob, true, false, true, true), "bob tick " + i);
+        }
+        assertEquals(PathMonitor.Decision.REPLAN,
+            m.onTick(new BlockPos(0, 64 + (41 % 2), 0), true, false, true, true),
+            "vertical-only motion must not starve the navDone replan");
+    }
 }
