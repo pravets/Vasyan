@@ -42,7 +42,9 @@ public class OpenAICompatibleClient implements AsyncLLMClient {
     public OpenAICompatibleClient(String providerId, String baseUrl, String apiKey, String model,
                                   int maxTokens, double temperature, boolean jsonMode, int timeoutSeconds) {
         this.providerId = providerId;
-        this.baseUrl = baseUrl;
+        // Strip trailing slash so that baseUrl + "/chat/completions" never
+        // produces a double-slash (tokenra preset has https://tokenra.io/v1/)
+        this.baseUrl = baseUrl != null && baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.apiKey = apiKey;
         this.model = model;
         this.maxTokens = maxTokens;

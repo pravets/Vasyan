@@ -341,10 +341,11 @@ public class VasyanCommands {
                         VasyanConfig.MAX_TOKENS.get(), VasyanConfig.TEMPERATURE.get(),
                         VasyanConfig.LLM_JSON_MODE.get(), VasyanConfig.LLM_TIMEOUT_SECONDS.get());
                     boolean healthy = client.checkHealth();
+                    String healthUrl = memberBase.endsWith("/") ? memberBase + "models" : memberBase + "/models";
                     source.sendSuccess(() -> Component.literal(
                         "§eHealth [" + memberId + "]: "
                             + (healthy ? "§aONLINE" : "§cUNREACHABLE")
-                            + " §7(GET " + memberBase + "/models)"), false);
+                            + " §7(GET " + healthUrl + ")"), false);
                 } catch (Exception e) {
                     String message = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     source.sendSuccess(() -> Component.literal(
@@ -353,10 +354,14 @@ public class VasyanCommands {
             }
         });
 
-        // List all known providers
+        // List all known providers dynamically
+        String allProviders = java.util.stream.Stream.of(
+            "openai", "groq", "gemini", "deepseek", "openrouter", "neuraldeep",
+            "ollama", "lmstudio", "opencode-go", "routerai", "cloud-ru-fm",
+            "selectel-router", "tokenra", "custom")
+            .map(p -> "§7" + p).collect(java.util.stream.Collectors.joining(", "));
         source.sendSuccess(() -> Component.literal("§eAvailable providers:"), false);
-        source.sendSuccess(() -> Component.literal(
-            "§7 openai, groq, gemini, ollama, lmstudio, opencode-go, custom"), false);
+        source.sendSuccess(() -> Component.literal(allProviders), false);
         source.sendSuccess(() -> Component.literal(
             "§7 Set llm.provider and llm.providerChain in config/vasyan-common.toml to switch"), false);
 
