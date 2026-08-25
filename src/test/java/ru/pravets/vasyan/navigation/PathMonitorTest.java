@@ -126,15 +126,23 @@ class PathMonitorTest {
     }
 
     @Test
-    void navDoneOutsideGoalReplansImmediatelyOnItsOwnBudget() {
+    void navDoneOutsideGoalReplansOnItsOwnPacedBudget() {
         var m = monitor(40, 3);
 
+        // Paced: each navDone replan requires a full stall window (40 ticks).
         for (int i = 0; i < 10; i++) {
+            for (int t = 1; t < 40; t++) {
+                assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true),
+                        "navDone pacing tick " + t + " of window #" + (i + 1) + " must CONTINUE");
+            }
             assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, true, false, true, true),
-                    "navDone replan #" + (i + 1) + " must fire immediately, no stall needed");
+                    "navDone replan #" + (i + 1) + " fires after the full stall window");
+        }
+        for (int t = 0; t < 40; t++) {
+            assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true));
         }
         assertEquals(PathMonitor.Decision.GIVE_UP, m.onTick(BOT, true, false, true, true),
-                "11th navDone-outside-goal exhausts navDoneReplans");
+                "11th paced navDone-outside-goal exhausts navDoneReplans");
         assertTrue(m.finished());
     }
 
@@ -143,6 +151,9 @@ class PathMonitorTest {
         var m = monitor(40, 3);
 
         for (int i = 0; i < 5; i++) {
+            for (int t = 0; t < 40; t++) {
+                assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true));
+            }
             assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, true, false, true, true));
         }
         // Unstable navigation burned none of the 3 main replans: full stall budget still available.
@@ -151,6 +162,23 @@ class PathMonitorTest {
         }
         stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
         assertFalse(m.finished());
+    }
+
+    @Test
+    void progressResetsNavDonePacingWindow() {
+        var m = monitor(40, 3);
+
+        for (int half = 0; half < 2; half++) {
+            for (int t = 0; t < 20; t++) {
+                m.onTick(BOT, true, false, true, true);
+            }
+            m.onProgress(); // real motion resets both windows
+        }
+        // The pacing window restarted: a full fresh window is needed before the replan.
+        for (int t = 1; t < 40; t++) {
+            assertEquals(PathMonitor.Decision.CONTINUE, m.onTick(BOT, true, false, true, true));
+        }
+        assertEquals(PathMonitor.Decision.REPLAN, m.onTick(BOT, true, false, true, true));
     }
 
     @Test

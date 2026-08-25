@@ -57,6 +57,8 @@ public final class PathMonitor {
     private final int navDoneReplans;
 
     private int stallCounter;
+    /** Ticks spent waiting since the last navDone-triggered replan (pacing). */
+    private int navDoneStallCounter;
     private int replansUsed;
     private int navDoneReplansUsed;
 
@@ -175,10 +177,19 @@ public final class PathMonitor {
 
     private void resetWindow() {
         stallCounter = 0;
+        navDoneStallCounter = 0;
     }
 
     private Decision handleNavDoneOutsideGoal() {
-        resetWindow();
+        // A finished path that ends off-goal replans at most once per stall
+        // window: without this pacing the navDone branch burns all
+        // navDoneReplans in consecutive ticks (each replan takes one tick to
+        // fail again) and GIVE_UP fires before the stall ladder - dig/scaffold/
+        // teleport - ever gets a chance (found by the wall-dig behavior test).
+        if (++navDoneStallCounter < stallTicks) {
+            return Decision.CONTINUE;
+        }
+        navDoneStallCounter = 0;
         if (navDoneReplansUsed < navDoneReplans) {
             navDoneReplansUsed++;
             return Decision.REPLAN;
