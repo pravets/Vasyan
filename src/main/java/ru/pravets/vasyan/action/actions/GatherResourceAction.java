@@ -5,6 +5,10 @@ import ru.pravets.vasyan.action.Task;
 import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.memory.VisionScanner;
+import ru.pravets.vasyan.navigation.PathBudgets;
+import ru.pravets.vasyan.navigation.PathMonitor;
+import ru.pravets.vasyan.navigation.VasyanGoal;
+import ru.pravets.vasyan.navigation.VasyanPathing;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.BlockItem;
@@ -37,12 +41,15 @@ import java.util.Set;
  *
  * <p>Stops early when: enough blocks gathered, inventory full, search timed
  * out, the route is exhausted, or felling stalls (no progress for a while).</p>
+ *
+ * <p><b>Routing on PathMonitor:</b> the whole ROUTING phase is delegated to
+ * {@link ru.pravets.vasyan.navigation.PathMonitor} + {@link ru.pravets.vasyan.navigation.VasyanPathing}
+ * - replans, dig-through, scaffolding and hop-teleports are monitor decisions,
+ * so this action keeps no local stall counters for movement anymore.</p>
  */
 public class GatherResourceAction extends BaseAction {
 
-    private static final double ARRIVED_DISTANCE_SQ = 3.0 * 3.0;
     private static final double MINE_REACH_SQ = 5.0 * 5.0;
-    private static final int ROUTE_STALL_TICKS = 60; // give navigation time to build a path
     private static final int MINE_STALL_TICKS = 60; // unreachable visible ore grace period
 
     private static final int FELL_MAX_HEIGHT = 64; // world height - pillar can reach any tree top
@@ -53,11 +60,7 @@ public class GatherResourceAction extends BaseAction {
     private static final int NEARBY_SCAN_RADIUS = 10; // cube scan around the bot (no line of sight)
     private static final int STATUS_INTERVAL = 40; // ticks between STATUS debug pings (20s @ 2TPS)
     private static final double PROGRESS_MOVE_DISTANCE_SQ = 8.0 * 8.0; // moving this far = progress
-    private static final int WATER_FISH_OUT_TICKS = 120; // 6s in water with no path -> teleport out
-    private static final double NO_MOVE_DISTANCE_SQ = 0.75 * 0.75; // less real displacement = wedged
-    private static final int MAX_ROUTE_STALLS = 2; // stalls without leaf progress before skipping
-    private static final int LEAF_CLEAR_PER_STALL = 3; // leaves chopped toward the target per stall
-    private static final int MAX_LEAF_CLEAR_STALLS = 4; // hard cap so a deep canopy can't loop
+    private static final int STATION_GOAL_RANGE = 3; // arrival radius for look-out stations
     private static final Block[] PILLAR_MATERIALS = {
         net.minecraft.world.level.block.Blocks.GRASS_BLOCK, // everywhere underfoot, drops dirt
         net.minecraft.world.level.block.Blocks.DIRT,
@@ -87,17 +90,16 @@ public class GatherResourceAction extends BaseAction {
     private ResourceSearchPlanner.SearchState searchState;
     private BlockPos routeTarget;
     private BlockPos mineTarget;
-    private int ticksOnRoute;
-    private int waterStuckTicks;
     private int ticksOnMine;
-    /** Movement watchdog state: a wedged path keeps nav "moving" forever. */
-    private BlockPos lastMovePos;
-    private int noMoveTicks;
-    /** Consecutive stalls for the CURRENT route target (re-path / leaf-clear attempts). */
-    private int routeStallCount;
+    /**
+     * Monitor-driven routing state (Task 4 machinery): the goal is recreated per
+     * route target, and both are reset whenever the route target changes - the
+     * replacement for the old per-target {@code routeStallCount} reset.
+     */
+    private VasyanGoal routeGoal;
+    private PathMonitor routeMonitor;
+    private PathBudgets routeBudgets;
     private BlockPos lastRouteTarget;
-    /** One hop-teleport toward the target is allowed per route target. */
-    private boolean hopAttempted;
     private int ticksRunning;
     private int statusCooldown;
 
@@ -152,10 +154,11 @@ public class GatherResourceAction extends BaseAction {
         // as a delta over what was already there ("mine 50 MORE logs").
         startResourceCount = countResource();
         ticksRunning = 0;
-        ticksOnRoute = 0;
         ticksOnMine = 0;
         lastRouteTarget = null;
-        routeStallCount = 0;
+        routeGoal = null;
+        routeMonitor = null;
+        routeBudgets = null;
         fellMode = false;
         fellGatheringMaterial = false;
         fellHeight = 0;
@@ -362,68 +365,43 @@ public class GatherResourceAction extends BaseAction {
 
     private void phaseRouting() {
         vasyan.setFlying(false); // ground movement, always
-        ticksOnRoute++;
 
         if (routeTarget == null) {
             phase = Phase.SEARCH;
             return;
         }
-        // New route target: reset per-target stall state.
+        // New route target: fresh goal, monitor and budgets for this attempt -
+        // the replacement of the old per-target stall-state reset. A mine
+        // target wants SIDE ADJACENCY (the bot must stand beside the block to
+        // break it); a look-out station is reached within a small radius.
         if (!routeTarget.equals(lastRouteTarget)) {
             lastRouteTarget = routeTarget;
-            routeStallCount = 0;
-            noMoveTicks = 0;
-            lastMovePos = null;
-            hopAttempted = false;
+            routeGoal = routeTarget.equals(mineTarget)
+                ? VasyanGoal.adjacent(routeTarget)
+                : VasyanGoal.near(routeTarget, STATION_GOAL_RANGE);
+            routeBudgets = PathBudgets.start(System.nanoTime(),
+                VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
+                VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
+                VasyanConfig.NAV_SEARCH_RADIUS.get());
+            routeMonitor = VasyanPathing.moveTo(vasyan, routeGoal, routeBudgets);
         }
 
-        // Water is no longer an obstacle: AmphibiousPathNavigation swims
-        // across ponds to targets/stations on its own. Remaining
-        // emergencies only: head under water (air is limited - bob up) or
-        // stuck in water with no active path for a long time (e.g. under an
-        // overhang the navigator cannot escape) - then fish out to shore.
-        if (vasyan.isInWater()) {
-            if (vasyan.isUnderWater()) {
-                vasyan.setDeltaMovement(vasyan.getDeltaMovement().add(0, 0.15, 0));
-            }
-            if (vasyan.getNavigation().isInProgress()) {
-                waterStuckTicks = 0; // swimming along a real route - fine
-            } else if (++waterStuckTicks > WATER_FISH_OUT_TICKS) {
-                BlockPos dry = findDrySpot(vasyan.blockPosition(), 8);
-                if (dry == null) {
-                    dry = findDrySpot(vasyan.blockPosition(), 16);
-                }
-                if (dry != null) {
-                    int sy = vasyan.level().getHeightmapPos(
-                        net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                        dry).getY();
-                    vasyan.teleportTo(dry.getX() + 0.5, sy + 1, dry.getZ() + 0.5);
-                    vasyan.getNavigation().stop();
-                    debugLog("ROUTING", "fished out of water to " + dry);
-                }
-                waterStuckTicks = 0;
-            }
-        } else {
-            waterStuckTicks = 0;
-        }
+        long nowNano = System.nanoTime();
+        BlockPos botPos = vasyan.blockPosition();
 
-        // Mine-from-here: the arrival radius (3) is stricter than the mining
-        // reach (5). When the target block is already in reach, do not force
-        // the last unwalkable meters (steep bank, canopy) - chop from here.
-        if (mineTarget != null && routeTarget.equals(mineTarget)
-                && vasyan.distanceToSqr(mineTarget.getX() + 0.5, mineTarget.getY() + 0.5, mineTarget.getZ() + 0.5) <= MINE_REACH_SQ
-                && isLogBlockAt(mineTarget)) {
-            ticksOnRoute = 0;
-            phase = Phase.MINING;
+        // The whole attempt ran out of its time budget: treat like the old
+        // stall give-up so SEARCH does not re-pick the same unreachable block.
+        if (routeBudgets.thinkExpired(nowNano)) {
+            debugLog("ROUTING", "think budget exhausted for " + routeGoal.describe());
+            skipCurrentRouteTarget();
             return;
         }
 
-        // Stations sit at origin.y + 5 (look-out altitude) but Vasyan walks on
-        // the ground: arrival and stall checks use the HORIZONTAL distance.
-        boolean reached = horizontalDistanceSqr(routeTarget) <= ARRIVED_DISTANCE_SQ;
-
-        if (reached) {
-            ticksOnRoute = 0;
+        // Arrival IS the goal predicate now: standing adjacent to the mine
+        // target or within range of the station - no separate distance or
+        // watchdog bookkeeping anymore. Water needs no special case either:
+        // amphibious navigation swims across ponds on its own.
+        if (routeGoal.hasReached(botPos)) {
             if (routeTarget.equals(mineTarget)) {
                 phase = Phase.MINING; // we arrived at the resource block
             } else {
@@ -432,104 +410,30 @@ public class GatherResourceAction extends BaseAction {
             return;
         }
 
-        if (!vasyan.getNavigation().isInProgress()) {
-            // Target a dry, standable cell NEAR the route point: routeTarget
-            // is a log/station block whose XZ may sit in a swamp pond.
-            BlockPos land = findDrySpotNear(routeTarget, 4);
-            if (land == null) {
-                // All water around: with amphibious navigation the bot
-                // simply SWIMS there - aim for a water surface cell.
-                land = findSwimSpotNear(routeTarget, 4);
-            }
-            if (land == null) {
-                // Neither dry land nor swimmable water anywhere near the
-                // route point - nothing to path to.
-                debugLog("ROUTING", "target has no walkable land or water, next");
-                ticksOnRoute = 0;
-                phase = fellGatheringMaterial ? Phase.FELL_GATHER : Phase.SEARCH;
-                return;
-            }
-            vasyan.getNavigation().moveTo(land.getX() + 0.5, land.getY(), land.getZ() + 0.5, 1.0);
-        }
-
-        // Movement watchdog: a wedged path (steep bank out of water, canopy
-        // wall) keeps vanilla navigation in the "moving" state forever - it
-        // recomputes the path every few ticks, so the isDone-based stall
-        // check below never fires. Detect "no real movement" independently.
-        // HORIZONTAL only: bobbing up/down in water (y 61<->65) is the wedge
-        // signature, not progress - full 3D distSqr would reset the counter.
-        BlockPos pos = vasyan.blockPosition();
-        int mdx = lastMovePos == null ? 0 : pos.getX() - lastMovePos.getX();
-        int mdz = lastMovePos == null ? 0 : pos.getZ() - lastMovePos.getZ();
-        if (lastMovePos == null || mdx * mdx + mdz * mdz >= NO_MOVE_DISTANCE_SQ) {
-            lastMovePos = pos;
-            noMoveTicks = 0;
-        } else if (++noMoveTicks > ROUTE_STALL_TICKS) {
-            handleRouteStall("no movement");
+        // Monitor gave up after exhausting its recovery ladder (replans,
+        // dig-through, scaffold, hop-teleport): skip this target exactly as
+        // the old repeated-stall path did.
+        if (routeMonitor.finished()) {
+            debugLog("ROUTING", "path monitor gave up on " + routeGoal.describe());
+            skipCurrentRouteTarget();
             return;
         }
 
-        // Path cannot be built / blocked: skip this target after a grace
-        // period. handleRouteStall chops leaves and re-paths first; the
-        // target is blacklisted only after repeated failures, so the next
-        // scan does not pick the SAME block again (infinite silent loop:
-        // reachable-block -> stall 60 ticks -> same block -> ...).
-        if (ticksOnRoute > ROUTE_STALL_TICKS
-                && vasyan.getNavigation().isDone()
-                && horizontalDistanceSqr(routeTarget) > ARRIVED_DISTANCE_SQ) {
-            handleRouteStall("path stalled");
-        }
+        routeBudgets = routeBudgets.nextTick(nowNano);
+        VasyanPathing.enforce(vasyan, routeMonitor);
     }
 
     /**
-     * Unified stall reaction: chop a few leaves toward the target (leaves
-     * are pathfinding-impassable, and swamp canopies hang to the ground,
-     * walling the trunk off), then let the routing loop re-path. The target
-     * is blacklisted only after repeated stalls with nothing left to clear.
+     * Routing failure exit for the CURRENT target: blacklists an unreachable
+     * resource block (so the next scan does not pick the SAME block again)
+     * or just moves on to the next station, keeping every fell-mode handoff
+     * intact.
      */
-    private void handleRouteStall(String reason) {
-        ticksOnRoute = 0;
-        noMoveTicks = 0;
+    private void skipCurrentRouteTarget() {
         vasyan.getNavigation().stop();
-        routeStallCount++;
-        int cleared = clearLeavesToward(routeTarget, LEAF_CLEAR_PER_STALL);
-        if (cleared > 0 && routeStallCount <= MAX_LEAF_CLEAR_STALLS) {
-            debugLog("ROUTING", reason + "; cleared " + cleared + " leaves toward " + routeTarget + ", re-pathing");
-            return;
-        }
-        if (routeStallCount < MAX_ROUTE_STALLS) {
-            debugLog("ROUTING", reason + "; re-pathing (attempt " + routeStallCount + ")");
-            return;
-        }
-        // Last resort before blacklisting: one hop toward the target. The
-        // amphibious navigator cannot scale a steep 2-3 block bank straight
-        // out of water - it recomputes the path forever while the body
-        // bounces at the waterline. Land on the far side, consistent with
-        // the existing fish-out teleport.
-        if (!hopAttempted && horizontalDistanceSqr(routeTarget) <= 64) {
-            hopAttempted = true;
-            BlockPos spot = findDrySpotNear(routeTarget, 4);
-            int ty;
-            if (spot != null) {
-                ty = spot.getY() + 1; // dry surface: feet above the ground block
-            } else {
-                spot = findSwimSpotNear(routeTarget, 4);
-                ty = spot == null ? 0 : spot.getY(); // swim spot: feet in the water cell
-            }
-            if (spot != null) {
-                vasyan.teleportTo(spot.getX() + 0.5, ty, spot.getZ() + 0.5);
-                vasyan.getNavigation().stop();
-                debugLog("ROUTING", reason + "; hopped across to " + spot);
-                return;
-            }
-        }
-        routeStallCount = 0;
         if (mineTarget != null && routeTarget.equals(mineTarget)) {
-            unreachableTargets.add(mineTarget);
-            if (unreachableTargets.size() > UNREACHABLE_TARGETS_LIMIT) {
-                unreachableTargets.clear();
-            }
-            debugLog("ROUTING", "target unreachable (" + reason + "), skipping " + mineTarget);
+            rememberUnreachable(mineTarget);
+            debugLog("ROUTING", "target unreachable, skipping " + mineTarget);
             mineTarget = null;
             if (fellGatheringMaterial) {
                 phase = Phase.FELL_GATHER; // re-pick another material block
@@ -543,63 +447,9 @@ public class GatherResourceAction extends BaseAction {
                 return;
             }
         } else {
-            debugLog("ROUTING", "station unreachable (" + reason + "), next station");
+            debugLog("ROUTING", "station unreachable, next station");
         }
         phase = Phase.SEARCH; // next station / other candidate
-    }
-
-    /**
-     * Breaks up to {@code max} leaf blocks within mining reach that lie
-     * toward the route target. Leaves are pathfinding-impassable, and swamp
-     * canopies (mangrove!) hang to the ground, walling the trunk off -
-     * chopping through is cheaper than routing around. Returns the number
-     * of blocks actually broken.
-     */
-    private int clearLeavesToward(BlockPos target, int max) {
-        net.minecraft.world.level.Level lvl = vasyan.level();
-        double tx = target.getX() + 0.5 - vasyan.getX();
-        double tz = target.getZ() + 0.5 - vasyan.getZ();
-        double tLen = Math.sqrt(tx * tx + tz * tz);
-        if (tLen < 0.5) {
-            return 0;
-        }
-        double ux = tx / tLen;
-        double uz = tz / tLen;
-        BlockPos bot = vasyan.blockPosition();
-        int reach = (int) Math.ceil(Math.sqrt(MINE_REACH_SQ));
-        List<BlockPos> leaves = new ArrayList<>();
-        for (int dx = -reach; dx <= reach; dx++) {
-            for (int dy = -2; dy <= 2; dy++) {
-                for (int dz = -reach; dz <= reach; dz++) {
-                    BlockPos p = bot.offset(dx, dy, dz);
-                    if (!(lvl.getBlockState(p).getBlock() instanceof net.minecraft.world.level.block.LeavesBlock)) {
-                        continue;
-                    }
-                    if (vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5) > MINE_REACH_SQ) {
-                        continue;
-                    }
-                    double lx = p.getX() + 0.5 - vasyan.getX();
-                    double lz = p.getZ() + 0.5 - vasyan.getZ();
-                    double lLen = Math.sqrt(lx * lx + lz * lz);
-                    if (lLen > 0.25 && (lx / lLen) * ux + (lz / lLen) * uz < 0.2) {
-                        continue; // leaf is not between us and the target
-                    }
-                    leaves.add(p);
-                }
-            }
-        }
-        leaves.sort(Comparator.comparingDouble(p -> vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)));
-        int cleared = 0;
-        for (BlockPos leaf : leaves) {
-            if (cleared >= max) {
-                break;
-            }
-            vasyan.getLookControl().setLookAt(leaf.getX() + 0.5, leaf.getY() + 0.5, leaf.getZ() + 0.5);
-            if (lvl.destroyBlock(leaf, true)) {
-                cleared++;
-            }
-        }
-        return cleared;
     }
 
     private void phaseMining() {
@@ -739,98 +589,6 @@ public class GatherResourceAction extends BaseAction {
         debugLog("FELL", "whole-tree felling: " + aboveWater.size() + " logs (underwater: "
             + (component.size() - aboveWater.size()) + " skipped)");
         phase = Phase.FELL_ASCEND;
-    }
-
-    /** Nearest dry standable cell within the radius of center, or null. */
-    private BlockPos findDrySpotNear(BlockPos center, int radius) {
-        net.minecraft.world.level.Level lvl = vasyan.level();
-        BlockPos best = null;
-        int bestDist = Integer.MAX_VALUE;
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                int x = center.getX() + dx;
-                int z = center.getZ() + dz;
-                int surfaceY = lvl.getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    new BlockPos(x, center.getY(), z)).getY();
-                BlockPos stand = new BlockPos(x, surfaceY, z);
-                // Surface itself must not be a log/leaves (a trunk column
-                // would put the goal ON TOP of the tree) and must not be
-                // water; the block below must be solid, not air/water.
-                Block surface = lvl.getBlockState(stand).getBlock();
-                if (surface.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS)
-                        || surface instanceof net.minecraft.world.level.block.LeavesBlock
-                        || lvl.getFluidState(stand).is(net.minecraft.tags.FluidTags.WATER)
-                        || lvl.getFluidState(stand.below()).is(net.minecraft.tags.FluidTags.WATER)
-                        || lvl.getBlockState(stand.below()).isAir()) {
-                    continue;
-                }
-                int dist = Math.abs(dx) + Math.abs(dz);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    best = stand;
-                }
-            }
-        }
-        return best;
-    }
-
-    /** Nearest spot (block below not water) within the radius, or null. */
-    private BlockPos findDrySpot(BlockPos center, int radius) {
-        net.minecraft.world.level.Level lvl = vasyan.level();
-        BlockPos best = null;
-        double bestDist = Double.MAX_VALUE;
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                BlockPos probe = new BlockPos(center.getX() + dx, center.getY(), center.getZ() + dz);
-                if (!lvl.getFluidState(probe).is(net.minecraft.tags.FluidTags.WATER)
-                        && !lvl.getFluidState(probe.below()).is(net.minecraft.tags.FluidTags.WATER)) {
-                    double d = dx * dx + dz * dz;
-                    if (d < bestDist) {
-                        bestDist = d;
-                        best = probe;
-                    }
-                }
-            }
-        }
-        return best;
-    }
-
-    /**
-     * Nearest swimmable water cell within the radius of center, or null.
-     * Used when there is no dry land around the route point: with amphibious
-     * navigation the bot simply swims there. The returned position is the
-     * top WATER block (the swimming node's height).
-     */
-    private BlockPos findSwimSpotNear(BlockPos center, int radius) {
-        net.minecraft.world.level.Level lvl = vasyan.level();
-        BlockPos best = null;
-        int bestDist = Integer.MAX_VALUE;
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dz = -radius; dz <= radius; dz++) {
-                int x = center.getX() + dx;
-                int z = center.getZ() + dz;
-                // First free cell above the highest motion-blocking block or
-                // fluid; for a pond that sits right above the water surface.
-                int surfaceY = lvl.getHeightmapPos(
-                    net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-                    new BlockPos(x, center.getY(), z)).getY();
-                BlockPos surface = new BlockPos(x, surfaceY, z);
-                BlockPos water = lvl.getFluidState(surface).is(net.minecraft.tags.FluidTags.WATER)
-                    ? surface
-                    : (lvl.getFluidState(surface.below()).is(net.minecraft.tags.FluidTags.WATER)
-                        ? surface.below() : null);
-                if (water == null) {
-                    continue;
-                }
-                int dist = Math.abs(dx) + Math.abs(dz);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    best = water;
-                }
-            }
-        }
-        return best;
     }
 
     /**
