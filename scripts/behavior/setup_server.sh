@@ -41,11 +41,14 @@ mkdir -p mods config
 # (no network, no keys, stable across CI and local runs).
 cat > config/vasyan-common.toml <<EOF
 [llm]
-	provider = "custom"
+	providerChain = ["custom"]
+	failoverRetrySeconds = 60
+	timeoutSeconds = 5
+
+[llm.members.custom]
 	baseUrl = "http://127.0.0.1:1/v1"
 	apiKey = "behavior-test"
 	model = "behavior-test"
-	timeoutSeconds = 5
 EOF
 
 echo "Server ready in $DIR"

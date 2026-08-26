@@ -147,6 +147,33 @@ public class ResilientLLMClient implements AsyncLLMClient {
     }
 
     /**
+     * The underlying HTTP client, when this wrapper wraps an
+     * {@link ru.pravets.vasyan.llm.async.OpenAICompatibleClient}. Used by
+     * observability code that needs the concrete endpoint/model of a chain
+     * member (live health check, active model display). Null for other
+     * delegate types.
+     */
+    public ru.pravets.vasyan.llm.async.OpenAICompatibleClient unwrapOpenAiClient() {
+        return delegate instanceof ru.pravets.vasyan.llm.async.OpenAICompatibleClient openAi
+            ? openAi : null;
+    }
+
+    /**
+     * Model for cache keys and logging: an explicit {@code "model"} param
+     * wins; otherwise the delegate client's own configured model (the chain
+     * strips the caller's model override so each member answers for itself);
+     * "unknown" for non-OpenAI delegates without a param.
+     */
+    private String effectiveModel(Map<String, Object> params) {
+        Object fromParams = params != null ? params.get("model") : null;
+        if (fromParams instanceof String s && !s.isBlank()) {
+            return s;
+        }
+        var openAi = unwrapOpenAiClient();
+        return openAi != null ? openAi.getModel() : "unknown";
+    }
+
+    /**
      * Registers event listeners for circuit breaker state changes and other events.
      *
      * @param providerId Provider ID for logging
@@ -192,7 +219,7 @@ public class ResilientLLMClient implements AsyncLLMClient {
 
     @Override
     public CompletableFuture<LLMResponse> sendAsync(String prompt, Map<String, Object> params) {
-        String model = (String) params.getOrDefault("model", "unknown");
+        String model = effectiveModel(params);
         String providerId = delegate.getProviderId();
 
         // Step 1: Check cache first (fastest path)
@@ -240,7 +267,7 @@ public class ResilientLLMClient implements AsyncLLMClient {
                 .thenCompose(f -> f)
                 .thenApply(response -> {
                     cache.put(prompt,
-                        (String) params.getOrDefault("model", "unknown"), providerId, response);
+                        effectiveModel(params), providerId, response);
                     LOGGER.debug("[{}] Request successful, cached response (latency: {}ms, tokens: {})",
                         providerId, response.getLatencyMs(), response.getTokensUsed());
                     return response;

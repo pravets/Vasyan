@@ -11,6 +11,7 @@ import ru.pravets.vasyan.llm.async.LLMCache;
 import ru.pravets.vasyan.llm.async.LLMResponse;
 import ru.pravets.vasyan.llm.async.OpenAICompatibleClient;
 import ru.pravets.vasyan.llm.resilience.LLMFallbackHandler;
+import ru.pravets.vasyan.llm.resilience.ProviderChainClient;
 import ru.pravets.vasyan.llm.resilience.ResilientLLMClient;
 import ru.pravets.vasyan.memory.WorldKnowledge;
 
@@ -26,7 +27,35 @@ public class TaskPlanner {
 
     private final AsyncLLMClient llmClient;
     private final LLMCache llmCache;
+    /** Head member's HTTP client (may be null for non-HTTP heads); used by legacy single-provider paths. */
     private final OpenAICompatibleClient baseClient;
+    /** Failover chain; non-null only when llm.providerChain is configured. */
+    private final ProviderChainClient providerChain;
+    /**
+     * Mod-wide planner singleton. One chain for ALL bots: a single cooldown /
+     * circuit-breaker state, no per-bot failover races, one chat notification
+     * per switch. TaskPlanner is effectively immutable after construction, so
+     * sharing is safe; {@code getInstance()} is lazy+synchronized because the
+     * constructor reads Forge config values that are only available after
+     * config registration.
+     */
+    private static volatile TaskPlanner sharedInstance;
+
+    /** The shared planner (mod-wide). See {@link #getInstance()}. */
+    public static TaskPlanner getInstance() {
+        TaskPlanner local = sharedInstance;
+        if (local == null) {
+            synchronized (TaskPlanner.class) {
+                local = sharedInstance;
+                if (local == null) {
+                    local = new TaskPlanner();
+                    sharedInstance = local;
+                }
+            }
+        }
+        return local;
+    }
+
     private volatile PlanRecord lastPlanRecord;
 
     public PlanRecord getLastPlanRecord() {
@@ -34,37 +63,162 @@ public class TaskPlanner {
     }
 
     public TaskPlanner() {
-        String provider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
-        String baseUrl = VasyanConfig.LLM_BASE_URL.get();
-        String apiKey = VasyanConfig.LLM_API_KEY.get();
-        String model = VasyanConfig.LLM_MODEL.get();
         int maxTokens = VasyanConfig.MAX_TOKENS.get();
         double temperature = VasyanConfig.TEMPERATURE.get();
-        boolean jsonMode = VasyanConfig.LLM_JSON_MODE.get();
+        boolean jsonMode = VasyanConfig.JSON_MODE.get();
         int timeoutSeconds = VasyanConfig.LLM_TIMEOUT_SECONDS.get();
 
-        if (!LLMProviders.isValid(provider)) {
-            VasyanMod.LOGGER.warn("Unknown LLM provider '{}', falling back to 'ollama'. Valid: {}",
-                provider, String.join(", ", List.of(
-                    LLMProviders.OPENAI, LLMProviders.GROQ, LLMProviders.GEMINI,
-                    LLMProviders.OLLAMA, LLMProviders.LMSTUDIO, LLMProviders.OPENCODE_GO,
-                    LLMProviders.CUSTOM)));
-            provider = LLMProviders.OLLAMA;
-        }
-
-        this.baseClient = OpenAICompatibleClient.forProvider(
-            provider, baseUrl, apiKey, model, maxTokens, temperature, jsonMode, timeoutSeconds);
-
-        if (LLMProviders.requiresKey(provider) && !baseClient.hasApiKey()) {
-            VasyanMod.LOGGER.warn("Provider '{}' requires an API key but llm.apiKey is empty. " +
-                "LLM calls will fail; set the key in config/vasyan-common.toml.", provider);
-        }
-
         this.llmCache = new LLMCache();
-        this.llmClient = new ResilientLLMClient(baseClient, llmCache, new LLMFallbackHandler());
 
-        VasyanMod.LOGGER.info("TaskPlanner initialized: provider={}, baseUrl={}, model={}, jsonMode={}",
-            provider, baseClient.getBaseUrl(), baseClient.getModel(), jsonMode);
+        List<AsyncLLMClient> members = buildMembers(maxTokens, temperature, jsonMode, timeoutSeconds);
+        if (members.isEmpty()) {
+            throw new IllegalStateException(
+                "llm.providerChain is empty or has no valid entries. Configure it in " +
+                "config/vasyan-common.toml, e.g.: providerChain = [\"opencode-go\"]");
+        }
+
+        this.providerChain = new ProviderChainClient(
+            members, TaskPlanner::notifyProviderSwitch,
+            VasyanConfig.FAILOVER_RETRY_SECONDS.get());
+        this.baseClient = httpDelegateOf(members.get(0));
+        this.llmClient = providerChain;
+
+        VasyanMod.LOGGER.info("TaskPlanner initialized: chain={}, jsonMode={}",
+            describeChain(providerChain), jsonMode);
+    }
+
+    /**
+     * Builds resilience-wrapped clients for every entry of
+     * {@code llm.providerChain}, head first.
+     *
+     * <p>Every id must be a preset from {@link LLMProviders}; per-member
+     * settings come from the {@code [llm.members.<id>]} section:
+     * resolution is section override first, preset default second. There are
+     * no shared llm.* fields anymore - each member stands on its own.</p>
+     *
+     * <p>Validation: unknown ids are warned about and skipped; duplicates are
+     * removed; key-requiring presets without a configured key produce a WARN
+     * (the client is still built - requests will fail with 401 until the key
+     * appears).</p>
+     */
+    private List<AsyncLLMClient> buildMembers(int maxTokens, double temperature,
+                                              boolean jsonMode, int timeoutSeconds) {
+        List<? extends String> rawChain = VasyanConfig.PROVIDER_CHAIN.get();
+        List<AsyncLLMClient> members = new ArrayList<>();
+        if (rawChain == null || rawChain.isEmpty()) {
+            return members;
+        }
+
+        for (String rawId : rawChain) {
+            String id = rawId == null ? "" : rawId.trim().toLowerCase();
+            if (id.isEmpty()) {
+                continue;
+            }
+            if (!LLMProviders.isValid(id)) {
+                VasyanMod.LOGGER.warn(
+                    "providerChain: unknown provider '{}' - skipping. Preset ids: openai, groq, " +
+                    "gemini, deepseek, openrouter, neuraldeep, ollama, lmstudio, opencode-go, " +
+                    "routerai, cloud-ru-fm, selectel-router, tokenra, custom.",
+                    id);
+                continue;
+            }
+            if (containsId(members, id)) {
+                VasyanMod.LOGGER.warn("providerChain: duplicate provider '{}' - skipping", id);
+                continue;
+            }
+
+            VasyanConfig.MemberSection section = memberSection(id);
+            String memberKey = firstNonEmpty(section.apiKey().get(), "");
+            String memberModel = firstNonEmpty(section.model().get(),
+                LLMProviders.resolveModel(id, ""));
+            String memberBaseUrl = firstNonEmpty(section.baseUrl().get(),
+                LLMProviders.get(id).baseUrl());
+
+            OpenAICompatibleClient base = new OpenAICompatibleClient(
+                id, memberBaseUrl, memberKey, memberModel,
+                maxTokens, temperature, jsonMode, timeoutSeconds);
+            VasyanMod.LOGGER.info("[chain] member '{}': baseUrl={} model={} apiKey={}",
+                id, memberBaseUrl, memberModel,
+                memberKey != null && !memberKey.isBlank() ? "set" : "MISSING");
+            if (memberBaseUrl == null || memberBaseUrl.isBlank()) {
+                VasyanMod.LOGGER.error("[chain] member '{}' has NO baseUrl (preset empty). " +
+                    "Set baseUrl in [llm.members.{}] - requests cannot be routed.", id, id);
+            }
+            if (LLMProviders.requiresKey(id) && !base.hasApiKey()) {
+                VasyanMod.LOGGER.warn("[chain] provider '{}' requires an API key but " +
+                    "[llm.members.{}] apiKey is empty - its calls will fail with 401 " +
+                    "until a key is set.", id, id);
+            }
+            members.add(new ResilientLLMClient(base, llmCache, new LLMFallbackHandler()));
+        }
+        return members;
+    }
+
+    private static boolean containsId(List<AsyncLLMClient> members, String id) {
+        return members.stream().anyMatch(m -> id.equals(m.getProviderId()));
+    }
+
+    private static boolean isSet(String v) {
+        return v != null && !v.isBlank();
+    }
+
+    /**
+     * Per-provider override section for the given chain member id. Public:
+     * used by /vasyan providers health checks.
+     */
+    public static VasyanConfig.MemberSection memberSection(String id) {
+        return switch (id) {
+            case LLMProviders.OPENAI -> VasyanConfig.MEMBER_OPENAI;
+            case LLMProviders.GROQ -> VasyanConfig.MEMBER_GROQ;
+            case LLMProviders.GEMINI -> VasyanConfig.MEMBER_GEMINI;
+            case LLMProviders.OLLAMA -> VasyanConfig.MEMBER_OLLAMA;
+            case LLMProviders.LMSTUDIO -> VasyanConfig.MEMBER_LMSTUDIO;
+            case LLMProviders.OPENCODE_GO -> VasyanConfig.MEMBER_OPENCODE_GO;
+            case LLMProviders.DEEPSEEK -> VasyanConfig.MEMBER_DEEPSEEK;
+            case LLMProviders.OPENROUTER -> VasyanConfig.MEMBER_OPENROUTER;
+            case LLMProviders.NEURALDEEP -> VasyanConfig.MEMBER_NEURALDEEP;
+            case LLMProviders.ROUTERAI -> VasyanConfig.MEMBER_ROUTERAI;
+            case LLMProviders.CLOUD_RU_FM -> VasyanConfig.MEMBER_CLOUD_RU_FM;
+            case LLMProviders.SELECTEL_ROUTER -> VasyanConfig.MEMBER_SELECTEL_ROUTER;
+            case LLMProviders.TOKENRA -> VasyanConfig.MEMBER_TOKENRA;
+            default -> VasyanConfig.MEMBER_CUSTOM;
+        };
+    }
+
+    /** First non-blank string, or the fallback. */
+    private static String firstNonEmpty(String value, String fallback) {
+        return value != null && !value.isBlank() ? value : fallback;
+    }
+
+    private static String describeChain(ProviderChainClient chain) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < chain.size(); i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(chain.getMembers().get(i).getProviderId());
+        }
+        return sb.append(']').toString();
+    }
+
+    /**
+     * Chat notification fired by the chain when the active provider actually
+     * changes (failover or recovery). Broadcast once per switch, to all
+     * players, like other Vasyan chat messages.
+     */
+    private static void notifyProviderSwitch(String message) {
+        VasyanMod.LOGGER.info("LLM provider switch: {}", message);
+        try {
+            net.minecraft.server.MinecraftServer server = VasyanMod.getCurrentServer();
+            if (server != null) {
+                for (var player : server.getPlayerList().getPlayers()) {
+                    player.sendSystemMessage(net.minecraft.network.chat.Component.literal(message));
+                }
+            }
+        } catch (Exception e) {
+            // Never let a notification problem affect request routing.
+            VasyanMod.LOGGER.debug("Provider-switch chat notification failed: {}", e.getMessage());
+        }
     }
 
     /**
@@ -80,14 +234,14 @@ public class TaskPlanner {
             WorldKnowledge worldKnowledge = new WorldKnowledge(vasyan);
             String userPrompt = PromptBuilder.buildUserPrompt(vasyan, command, worldKnowledge);
 
-            String provider = VasyanConfig.AI_PROVIDER.get().toLowerCase();
+            String provider = getActiveProvider();
             VasyanMod.LOGGER.info("[Async] Requesting AI plan for Vasyan '{}' using {}: {}",
                 vasyan.getVasyanName(), provider, command);
             AgentDebugBuffer.log(vasyan.getVasyanName(), "COMMAND", "[" + provider + "] " + command);
 
             Map<String, Object> params = Map.of(
                 "systemPrompt", systemPrompt,
-                "model", VasyanConfig.LLM_MODEL.get(),
+                "model", getActiveModel(),
                 "maxTokens", VasyanConfig.MAX_TOKENS.get(),
                 "temperature", VasyanConfig.TEMPERATURE.get()
             );
@@ -263,37 +417,120 @@ public class TaskPlanner {
     }
 
     /**
-     * Checks if the configured provider's async client is healthy.
+     * The failover chain, or {@code null} when {@code llm.providerChain} is
+     * empty (single-provider mode).
+     */
+    public ProviderChainClient getProviderChain() {
+        return providerChain;
+    }
+
+    /**
+     * Checks if the configured provider (or at least one chain member) can
+     * currently accept requests.
      */
     public boolean isProviderHealthy() {
         return llmClient.isHealthy();
     }
 
     /**
-     * Live health check of the configured provider endpoint (GET /models).
+     * Live health check of the ACTUAL active provider - the chain head in
+     * single-provider mode, possibly a failover member otherwise.
+     *
+     * <p>For HTTP members this performs a real GET {@code /models} request.
+     * For non-HTTP members (e.g. test fakes or future non-OpenAI transports)
+     * only the cheap circuit-breaker liveness signal is available: the result
+     * reflects the breaker state, NOT a live network probe.</p>
      */
     public boolean pingProvider() {
-        return getBaseClient().checkHealth();
+        if (providerChain != null) {
+            AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
+            OpenAICompatibleClient delegate = httpDelegateOf(active);
+            if (delegate != null) {
+                return delegate.checkHealth();
+            }
+            return active.isHealthy();
+        }
+        return baseClient.checkHealth();
+    }
+
+    /**
+     * Live health checks for every chain member (or just the single provider
+     * when no chain is configured). Keyed by provider id.
+     */
+    public Map<String, Boolean> pingProviderChain() {
+        List<AsyncLLMClient> members = (providerChain != null)
+            ? providerChain.getMembers()
+            : List.of(getBaseClient());
+        Map<String, Boolean> result = new java.util.LinkedHashMap<>();
+        for (AsyncLLMClient member : members) {
+            OpenAICompatibleClient delegate = httpDelegateOf(member);
+            if (delegate != null) {
+                result.put(member.getProviderId(), delegate.checkHealth());
+            } else {
+                // Non-HTTP members: fall back to the cheap liveness signal.
+                result.put(member.getProviderId(), member.isHealthy());
+            }
+        }
+        return result;
     }
 
     private OpenAICompatibleClient getBaseClient() {
         return baseClient;
     }
 
-    public String getActiveProvider() {
-        return VasyanConfig.AI_PROVIDER.get().toLowerCase();
-    }
-
-    public String getActiveModel() {
-        String model = VasyanConfig.LLM_MODEL.get();
-        if (model == null || model.isEmpty()) {
-            return LLMProviders.resolveModel(getActiveProvider(), "");
+    /**
+     * The concrete HTTP client behind a chain member (unwrapping
+     * {@code ResilientLLMClient} if needed), or null when the member is not an
+     * HTTP client. Without unwrapping, per-member model/baseUrl overrides and
+     * live health checks are invisible for every chain member.
+     */
+    public static OpenAICompatibleClient httpDelegateOf(AsyncLLMClient member) {
+        if (member instanceof OpenAICompatibleClient openAi) {
+            return openAi;
         }
-        return model;
+        if (member instanceof ResilientLLMClient resilient) {
+            return resilient.unwrapOpenAiClient();
+        }
+        return null;
     }
 
+    /**
+     * The ACTUAL active provider id: the current chain head during normal
+     * operation; after a failover this returns whichever member traffic moved
+     * to (and after recovery, the head again). Without a chain it is simply
+     * the configured {@code llm.provider}.
+     */
+    public String getActiveProvider() {
+        // providerChain is mandatory now; only null in degenerate tests.
+        return providerChain != null ? providerChain.getActiveProviderId() : "";
+    }
+
+    /**
+     * Model of the ACTUAL active provider (member override or preset default).
+     */
+    public String getActiveModel() {
+        if (providerChain != null) {
+            AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
+            OpenAICompatibleClient delegate = httpDelegateOf(active);
+            if (delegate != null) {
+                return delegate.getModel();
+            }
+        }
+        return LLMProviders.resolveModel(getActiveProvider(), "");
+    }
+
+    /**
+     * Base URL of the ACTUAL active provider.
+     */
     public String getActiveBaseUrl() {
-        return LLMProviders.resolveBaseUrl(getActiveProvider(), VasyanConfig.LLM_BASE_URL.get());
+        if (providerChain != null) {
+            AsyncLLMClient active = providerChain.getMembers().get(providerChain.getActiveIndex());
+            OpenAICompatibleClient delegate = httpDelegateOf(active);
+            if (delegate != null) {
+                return delegate.getBaseUrl();
+            }
+        }
+        return LLMProviders.resolveBaseUrl(getActiveProvider(), "");
     }
 
     public boolean validateTask(Task task) {

@@ -102,8 +102,10 @@ public class ActionExecutor {
     
     private TaskPlanner getTaskPlanner() {
         if (taskPlanner == null) {
-            VasyanMod.LOGGER.info("Initializing TaskPlanner for Vasyan '{}'", vasyan.getVasyanName());
-            taskPlanner = new TaskPlanner();
+            VasyanMod.LOGGER.info("Attaching shared TaskPlanner for Vasyan '{}'", vasyan.getVasyanName());
+            // Mod-wide singleton: one LLM chain (cooldown / circuit breaker /
+            // failover notifications) for ALL bots, not one per bot.
+            taskPlanner = TaskPlanner.getInstance();
         }
         return taskPlanner;
     }

@@ -1,14 +1,115 @@
 package ru.pravets.vasyan.config;
 
 import net.minecraftforge.common.ForgeConfigSpec;
+import ru.pravets.vasyan.llm.LLMProviders;
+
+import java.util.List;
 
 public class VasyanConfig {
+
+    /**
+     * API key configured for a chain member id via its
+     * {@code [llm.members.<id>]} section. Unknown ids return "".
+     */
+    public static String memberApiKeyOf(String id) {
+        var s = memberSectionById(id);
+        return s == null ? "" : s.apiKey().get();
+    }
+
+    private static MemberSection memberSectionById(String id) {
+        return switch (id == null ? "" : id.toLowerCase(java.util.Locale.ROOT)) {
+            case "openai" -> MEMBER_OPENAI;
+            case "groq" -> MEMBER_GROQ;
+            case "gemini" -> MEMBER_GEMINI;
+            case "ollama" -> MEMBER_OLLAMA;
+            case "lmstudio" -> MEMBER_LMSTUDIO;
+            case "opencode-go" -> MEMBER_OPENCODE_GO;
+            case "deepseek" -> MEMBER_DEEPSEEK;
+            case "openrouter" -> MEMBER_OPENROUTER;
+            case "neuraldeep" -> MEMBER_NEURALDEEP;
+            case "routerai" -> MEMBER_ROUTERAI;
+            case "cloud-ru-fm" -> MEMBER_CLOUD_RU_FM;
+            case "selectel-router" -> MEMBER_SELECTEL_ROUTER;
+            case "tokenra" -> MEMBER_TOKENRA;
+            case "custom" -> MEMBER_CUSTOM;
+            default -> null;
+        };
+    }
+
+    /**
+     * Pre-flight check: parse the user's config file BEFORE Forge does. A
+     * syntactically broken file (e.g. unquoted strings in providerChain)
+     * would otherwise throw ConfigLoadingException during mod loading and
+     * crash the game to desktop. Instead the broken file is preserved next to
+     * the original with a .broken-<timestamp> suffix and Forge generates a
+     * fresh default config - the game starts and the user can port their
+     * settings over.
+     *
+     * Must run before {@code registerConfig} in the mod constructor.
+     */
+    public static void quarantineUnparseableFile() {
+        java.nio.file.Path dir = net.minecraftforge.fml.loading.FMLPaths.CONFIGDIR.get();
+        java.nio.file.Path file = dir.resolve("vasyan-common.toml");
+        if (!java.nio.file.Files.exists(file)) {
+            return;
+        }
+        var parser = new com.electronwill.nightconfig.toml.TomlParser();
+        // Parse errors propagate to the dedicated catch below. The Reader is
+        // closed BEFORE any Files.move there - an open handle would block the
+        // rename on Windows. A transient IOException is NOT quarantined: it
+        // is logged and the valid config stays untouched.
+        try (var reader = java.nio.file.Files.newBufferedReader(file)) {
+            parser.parse(reader);
+            return; // config parses fine - nothing to do
+        } catch (com.electronwill.nightconfig.core.io.ParsingException parseFailure) {
+            // ONLY a syntax error justifies quarantining the file.
+            try {
+                String stamp = java.time.LocalDateTime.now()
+                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+                java.nio.file.Path backup = dir.resolve("vasyan-common.toml.broken-" + stamp);
+                java.nio.file.Files.move(file, backup);
+                org.slf4j.LoggerFactory.getLogger("VasyanMod").error(
+                    "vasyan-common.toml is invalid ({}). Moved to {} - a default config will be generated. " +
+                    "Port your settings over manually.",
+                    parseFailure.getMessage(), backup.getFileName());
+            } catch (Exception quarantineFailure) {
+                // Nothing more we can do safely; let Forge surface the original error.
+                org.slf4j.LoggerFactory.getLogger("VasyanMod").error(
+                    "Failed to quarantine broken vasyan-common.toml", quarantineFailure);
+            }
+        } catch (java.io.IOException ioFailure) {
+            // Read failure (missing dir, permissions...): not a syntax problem.
+            // Do NOT touch the file; Forge's own loading will report it if real.
+            org.slf4j.LoggerFactory.getLogger("VasyanMod").warn(
+                "Could not pre-flight vasyan-common.toml ({}); skipping quarantine check.",
+                ioFailure.toString());
+        }
+    }
+
     public static final ForgeConfigSpec SPEC;
-    public static final ForgeConfigSpec.ConfigValue<String> AI_PROVIDER;
-    public static final ForgeConfigSpec.ConfigValue<String> LLM_BASE_URL;
-    public static final ForgeConfigSpec.ConfigValue<String> LLM_API_KEY;
-    public static final ForgeConfigSpec.ConfigValue<String> LLM_MODEL;
-    public static final ForgeConfigSpec.BooleanValue LLM_JSON_MODE;
+    /**
+     * Ordered failover chain of LLM providers (highest priority first).
+     * Every id MUST be one of the {@link LLMProviders} presets; per-member
+     * settings live in {@code [llm.members.<id>]} sections below.
+     */
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> PROVIDER_CHAIN;
+    /** Seconds before the chain retries the head provider after a failover. */
+    public static final ForgeConfigSpec.IntValue FAILOVER_RETRY_SECONDS;
+    public static final ForgeConfigSpec.BooleanValue JSON_MODE;
+    public static final MemberSection MEMBER_OPENAI;
+    public static final MemberSection MEMBER_GROQ;
+    public static final MemberSection MEMBER_GEMINI;
+    public static final MemberSection MEMBER_OLLAMA;
+    public static final MemberSection MEMBER_LMSTUDIO;
+    public static final MemberSection MEMBER_OPENCODE_GO;
+    public static final MemberSection MEMBER_DEEPSEEK;
+    public static final MemberSection MEMBER_OPENROUTER;
+    public static final MemberSection MEMBER_NEURALDEEP;
+    public static final MemberSection MEMBER_ROUTERAI;
+    public static final MemberSection MEMBER_CLOUD_RU_FM;
+    public static final MemberSection MEMBER_SELECTEL_ROUTER;
+    public static final MemberSection MEMBER_TOKENRA;
+    public static final MemberSection MEMBER_CUSTOM;
     public static final ForgeConfigSpec.IntValue MAX_TOKENS;
     public static final ForgeConfigSpec.DoubleValue TEMPERATURE;
     public static final ForgeConfigSpec.IntValue LLM_TIMEOUT_SECONDS;
@@ -35,33 +136,61 @@ public class VasyanConfig {
     static {
         ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
 
-        builder.comment("LLM provider configuration. All providers use the OpenAI-compatible Chat Completions API.",
-            "provider: openai | groq | gemini | ollama | lmstudio | opencode-go | custom",
-            "  ollama     -> http://127.0.0.1:11434/v1 (no key needed)",
-            "  lmstudio   -> http://127.0.0.1:1234/v1 (no key needed)",
-            "  opencode-go-> https://opencode.ai/zen/go/v1 (key from OpenCode Zen, models like deepseek-v4-flash)",
-            "  custom     -> any OpenAI-compatible endpoint, baseUrl is required")
+        builder.comment("LLM configuration. All providers use the OpenAI-compatible Chat Completions API.",
+            "providerChain lists provider ids in priority order:",
+            "  openai | groq | gemini | deepseek | openrouter | neuraldeep | ollama | lmstudio |",
+            "  opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom",
+            "Preset base URLs apply automatically; keys/models go to [llm.members.<id>].")
             .push("llm");
 
-        AI_PROVIDER = builder
-            .comment("Active LLM provider")
-            .define("provider", "ollama");
+        PROVIDER_CHAIN = builder
+            .comment("LLM providers in priority order (failover chain). Example:",
+                "  providerChain = [\"opencode-go\", \"ollama\"]",
+                "Every id must be a preset: openai | groq | gemini | deepseek | openrouter |",
+                "neuraldeep | ollama | lmstudio | opencode-go | routerai | cloud-ru-fm |",
+                "selectel-router | tokenra | custom. One entry = single provider, no failover.",
+                "If a request to the active provider fails, the next one is tried within the",
+                "SAME request; when the head recovers, traffic fails back after",
+                "failoverRetrySeconds. Keys/models/baseUrls are set per member in the",
+                "[llm.members.<id>] sections below - preset defaults apply when unset.")
+            .defineListAllowEmpty("providerChain", java.util.Collections::<String>emptyList,
+                o -> o instanceof String s && !s.isBlank());
 
-        LLM_BASE_URL = builder
-            .comment("Base URL override. Empty = preset default (e.g. http://127.0.0.1:11434/v1 for ollama).",
-                "Required for provider 'custom'.")
-            .define("baseUrl", "");
+        FAILOVER_RETRY_SECONDS = builder
+            .comment("Seconds before the chain retries the highest-priority provider",
+                "after failing over to a lower-priority one (cooldown).",
+                "Also throttles recovery probes so a dead head is not hammered.")
+            .defineInRange("failoverRetrySeconds", 60, 5, 3600);
 
-        LLM_API_KEY = builder
-            .comment("API key. Empty for ollama/lmstudio; required for openai/groq/gemini/opencode-go.")
-            .define("apiKey", "");
+        builder.comment("Per-provider settings for providerChain members.",
+                "Each section only needs the fields that differ from the preset default:",
+                "unset/empty fields fall back to the preset (baseUrl/defaultModel);",
+                "apiKey has no preset and must be set here for key-requiring providers.",
+                "Example:",
+                "  [llm.members.opencode-go]",
+                "  apiKey = \"zen-key-123\"",
+                "  model = \"deepseek-v4-pro\"",
+                "  [llm.members.ollama]",
+                "  baseUrl = \"http://192.168.1.50:11434/v1\"",
+                "  model = \"qwen3:14b\"")
+            .push("members");
+        MEMBER_OPENAI = MemberSection.define(builder, LLMProviders.OPENAI);
+        MEMBER_GROQ = MemberSection.define(builder, LLMProviders.GROQ);
+        MEMBER_GEMINI = MemberSection.define(builder, LLMProviders.GEMINI);
+        MEMBER_OLLAMA = MemberSection.define(builder, LLMProviders.OLLAMA);
+        MEMBER_LMSTUDIO = MemberSection.define(builder, LLMProviders.LMSTUDIO);
+        MEMBER_OPENCODE_GO = MemberSection.define(builder, LLMProviders.OPENCODE_GO);
+        MEMBER_DEEPSEEK = MemberSection.define(builder, LLMProviders.DEEPSEEK);
+        MEMBER_OPENROUTER = MemberSection.define(builder, LLMProviders.OPENROUTER);
+        MEMBER_NEURALDEEP = MemberSection.define(builder, LLMProviders.NEURALDEEP);
+        MEMBER_ROUTERAI = MemberSection.define(builder, LLMProviders.ROUTERAI);
+        MEMBER_CLOUD_RU_FM = MemberSection.define(builder, LLMProviders.CLOUD_RU_FM);
+        MEMBER_SELECTEL_ROUTER = MemberSection.define(builder, LLMProviders.SELECTEL_ROUTER);
+        MEMBER_TOKENRA = MemberSection.define(builder, LLMProviders.TOKENRA);
+        MEMBER_CUSTOM = MemberSection.define(builder, LLMProviders.CUSTOM);
+        builder.pop();
 
-        LLM_MODEL = builder
-            .comment("Model name. Empty = preset default (deepseek-v4-flash for opencode-go, llama3.1 for ollama).",
-                "For lmstudio leave empty to use whatever model is currently loaded.")
-            .define("model", "");
-
-        LLM_JSON_MODE = builder
+        JSON_MODE = builder
             .comment("Send response_format: {\"type\":\"json_object\"}. Greatly improves JSON output reliability.",
                 "Disable if your provider rejects this field.")
             .define("jsonMode", true);
@@ -193,5 +322,30 @@ public class VasyanConfig {
         builder.pop();
 
         SPEC = builder.build();
+    }
+
+
+    /**
+     * Per-provider override triple for a providerChain member: apiKey, model,
+     * baseUrl. Empty values mean "use preset default or shared llm.* value".
+     */
+    public record MemberSection(
+        ForgeConfigSpec.ConfigValue<String> apiKey,
+        ForgeConfigSpec.ConfigValue<String> model,
+        ForgeConfigSpec.ConfigValue<String> baseUrl) {
+
+        static MemberSection define(ForgeConfigSpec.Builder builder, String providerId) {
+            // Each member gets its own TOML subsection: [llm.members.<id>].
+            builder.push(providerId);
+            MemberSection section = new MemberSection(
+                builder.comment("API key override for '" + providerId + "'. Empty = shared llm.apiKey (or none).")
+                    .define("apiKey", ""),
+                builder.comment("Model override for '" + providerId + "'. Empty = preset default or shared llm.model.")
+                    .define("model", ""),
+                builder.comment("Base URL override for '" + providerId + "'. Empty = preset default or shared llm.baseUrl.")
+                    .define("baseUrl", ""));
+            builder.pop();
+            return section;
+        }
     }
 }

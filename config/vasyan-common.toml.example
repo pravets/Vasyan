@@ -2,26 +2,19 @@
 # All providers speak the OpenAI-compatible Chat Completions API.
 
 [llm]
-# Active provider: openai | groq | gemini | ollama | lmstudio | opencode-go | custom
-provider = "ollama"
+# LLM providers in priority order (failover chain). Every id must be a preset:
+#   openai | groq | gemini | deepseek | openrouter | neuraldeep | ollama |
+#   lmstudio | opencode-go | routerai | cloud-ru-fm | selectel-router | tokenra | custom
+#
+# If a request to the active provider fails, the next one is tried within the
+# SAME request. When the head recovers, traffic fails back after
+# failoverRetrySeconds. One entry = single provider, no failover.
+#
+# Keys/models/baseUrls are set per member in [llm.members.<id>] sections below.
+providerChain = ["opencode-go", "ollama"]
 
-# Base URL override. Empty = preset default:
-#   openai      -> https://api.openai.com/v1
-#   groq        -> https://api.groq.com/openai/v1
-#   gemini      -> https://generativelanguage.googleapis.com/v1beta/openai
-#   ollama      -> http://localhost:11434/v1
-#   lmstudio    -> http://localhost:1234/v1
-#   opencode-go -> https://opencode.ai/zen/go/v1
-# Required for provider "custom" (any OpenAI-compatible endpoint).
-baseUrl = ""
-
-# API key. Empty for ollama/lmstudio.
-# Required for: openai, groq, gemini, opencode-go (key from your OpenCode Zen account).
-apiKey = ""
-
-# Model. Empty = preset default (deepseek-v4-flash for opencode-go, llama3.1 for ollama).
-# For lmstudio leave empty to use whatever model is currently loaded.
-model = ""
+# Seconds before the chain retries the highest-priority provider after a failover.
+failoverRetrySeconds = 60
 
 # Send response_format: {"type":"json_object"} for reliable JSON output.
 # Disable if your provider rejects this field.
@@ -36,59 +29,50 @@ temperature = 0.7
 # Per-request timeout in seconds
 timeoutSeconds = 60
 
+# Per-provider settings for chain members. Each section only needs the fields
+# that differ from the preset default: unset/empty fields fall back to the
+# preset (baseUrl/defaultModel). apiKey has NO preset - set it here for
+# key-requiring providers.
+#
+# Preset base URLs:
+#   openai           -> https://api.openai.com/v1
+#   groq             -> https://api.groq.com/openai/v1
+#   gemini           -> https://generativelanguage.googleapis.com/v1beta/openai
+#   deepseek         -> https://api.deepseek.com
+#   openrouter       -> https://openrouter.ai/api/v1
+#   neuraldeep       -> https://api.neuraldeep.ru/v1
+#   ollama           -> http://127.0.0.1:11434/v1 (no key)
+#   lmstudio         -> http://127.0.0.1:1234/v1 (no key)
+#   opencode-go      -> https://opencode.ai/zen/go/v1
+#   routerai         -> https://routerai.ru/api/v1
+#   cloud-ru-fm      -> https://foundation-models.api.cloud.ru/v1
+#   selectel-router  -> https://api.selectel.ru/aig/v1
+#   tokenra          -> https://tokenra.io/v1/
+#   custom           -> any OpenAI-compatible endpoint; baseUrl REQUIRED here
+
+[llm.members.opencode-go]
+apiKey = "your-opencode-zen-key"
+model = "deepseek-v4-flash"
+
+[llm.members.tokenra]
+apiKey = "sk-..."
+model = "ox-alpha-1"
+
+#[llm.members.custom]
+#baseUrl = "https://your-endpoint.example.com/v1"
+#apiKey = "key-if-needed"
+#model = "some-model"
+
 # Examples:
 #
 # OpenCode Go subscription (models: deepseek-v4-flash, deepseek-v4-pro, kimi-k3, glm-5.2, ...):
-#   provider = "opencode-go"
-#   apiKey = "your-opencode-zen-key"
-#   model = "deepseek-v4-flash"
+#   providerChain = ["opencode-go"]
+#   [llm.members.opencode-go]
+#   apiKey = "your-zen-key"
 #
-# Local Ollama (run: ollama pull llama3.1, then ollama serve):
-#   provider = "ollama"
-#   model = "llama3.1"
+# Local ollama fallback:
+#   providerChain = ["opencode-go", "ollama"]   # + members section above
 #
-# LM Studio (start the local server on port 1234):
-#   provider = "lmstudio"
-#   model = ""  # whatever is loaded
-
-[behavior]
-# Ticks between action checks (20 ticks = 1 second)
-actionTickDelay = 20
-# Allow Vasyans to respond in chat
-enableChatResponses = true
-# Maximum number of Vasyans that can be active simultaneously
-maxActiveVasyans = 10
-# Keep the chunk each Vasyan stands in force-loaded so Vasyans keep working
-# on a dedicated server even when no player is online.
-forceLoadChunks = true
-
-[voice]
-# Push-to-talk voice commands (key V): the client records the microphone and
-# sends the audio to the server, which transcribes it via ANY OpenAI-compatible
-# /audio/transcriptions endpoint and dispatches the text as a normal chat command.
-
-# Enable voice commands (requires a microphone and an STT endpoint).
-# Disabled by default: audio leaves the client and reaches the configured STT
-# endpoint - enable explicitly after setting sttApiKey.
-enabled = false
-
-# Base URL of an OpenAI-compatible STT endpoint.
-# Any provider works: set your own, e.g. https://routerai.ru/api/v1
-# The transcription call is POST {baseUrl}/audio/transcriptions
-sttBaseUrl = "https://routerai.ru/api/v1"
-
-# API key for the STT endpoint (stored server-side only).
-sttApiKey = ""
-
-# STT model name (any model your endpoint supports).
-sttModel = "openai/whisper-large-v3-turbo"
-
-# STT language hint; empty = auto-detect.
-# e.g. "ru" for Russian commands, "en" for English.
-sttLanguage = "ru"
-
-# Maximum recording length in seconds (auto-stop).
-maxRecordingSeconds = 10
-
-# Audio chunk size in bytes sent per network packet.
-chunkSize = 16384
+# LAN ollama override:
+#   [llm.members.ollama]
+#   baseUrl = "http://192.168.1.50:11434/v1"

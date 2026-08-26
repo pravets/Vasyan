@@ -51,6 +51,8 @@ public class VasyanMod {
     }
 
     private static VasyanManager vasyanManager;
+    /** Current dedicated/integrated server, kept for cross-cutting notifications. */
+    private static volatile net.minecraft.server.MinecraftServer currentServer;
 
     public VasyanMod() {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
@@ -60,6 +62,16 @@ public class VasyanMod {
         ENTITIES.register(modEventBus);
         COMMAND_ARGUMENT_TYPES.register(modEventBus);
         VasyanMenus.MENUS.register(modEventBus);
+
+        // Quarantine a syntactically broken config BEFORE Forge tries to load
+        // it (a broken file would otherwise crash the game during mod loading).
+        VasyanConfig.quarantineUnparseableFile();
+
+        // Silence known-harmless EventSubclassTransformer CNFE spam against the
+        // shaded resilience4j/vavr classes (they first load on ForkJoinPool
+        // threads where the TCCL cannot see the shaded jar). Narrow filter:
+        // only those packages are denied, real event-bus errors still log.
+        ru.pravets.vasyan.util.EventBusShadedClassLogFilter.install();
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, VasyanConfig.SPEC);
 
@@ -92,14 +104,34 @@ public class VasyanMod {
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase == TickEvent.Phase.END && vasyanManager != null && event.getServer() != null) {
+            currentServer = event.getServer();
             for (ServerLevel level : event.getServer().getAllLevels()) {
                 vasyanManager.tick(level);
             }
         }
     }
 
+    @SubscribeEvent
+    public void onServerStopping(net.minecraftforge.event.server.ServerStoppingEvent event) {
+        // Clear the reference BEFORE the server is fully gone so late
+        // notifications (e.g. LLM failover messages) never target a stale
+        // instance. Guarded by identity: only clear OUR server.
+        if (currentServer != null && currentServer == event.getServer()) {
+            currentServer = null;
+        }
+    }
+
     public static VasyanManager getVasyanManager() {
         return vasyanManager;
+    }
+
+    /**
+     * The running server instance, or {@code null} when no server is up.
+     * Used for cross-cutting notifications (e.g. LLM provider failover chat
+     * messages) that originate outside any specific entity/level context.
+     */
+    public static net.minecraft.server.MinecraftServer getCurrentServer() {
+        return currentServer;
     }
 }
 

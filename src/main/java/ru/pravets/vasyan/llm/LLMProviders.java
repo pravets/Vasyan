@@ -6,8 +6,11 @@ import java.util.Map;
  * Provider presets for the LLM layer.
  *
  * <p>Every preset points at an OpenAI-compatible Chat Completions endpoint.
- * The active provider is selected via {@code llm.provider} in the config;
- * {@code baseUrl} and {@code model} can be overridden per-installation.</p>
+ * The active provider is selected via {@code llm.provider} in the config (or
+ * by position in {@code llm.providerChain}); {@code baseUrl} and {@code model}
+ * can be overridden per-installation via vasyan-llm-members.toml or
+ * {@code [llm.members.<id>]} sections - a preset value applies only when no
+ * override exists.</p>
  */
 public final class LLMProviders {
 
@@ -16,19 +19,52 @@ public final class LLMProviders {
     public static final String GEMINI = "gemini";
     public static final String OLLAMA = "ollama";
     public static final String LMSTUDIO = "lmstudio";
+    /** OpenCode Go subscription endpoint (opencode.ai/zen/go/v1). */
     public static final String OPENCODE_GO = "opencode-go";
+    /** DeepSeek official API. */
+    public static final String DEEPSEEK = "deepseek";
+    /** OpenRouter multi-model gateway. */
+    public static final String OPENROUTER = "openrouter";
+    /** NeuralDeep (api.neuraldeep.ru) OpenAI-compatible gateway. */
+    public static final String NEURALDEEP = "neuraldeep";
+    /** RouterAI (routerai.ru) multi-model gateway. */
+    public static final String ROUTERAI = "routerai";
+    /** Cloud.ru Foundation Models endpoint. */
+    public static final String CLOUD_RU_FM = "cloud-ru-fm";
+    /** Selectel AI Gateway (api.selectel.ru/aig/v1). */
+    public static final String SELECTEL_ROUTER = "selectel-router";
+    /** TokenRA (tokenra.io) OpenAI-compatible gateway. */
+    public static final String TOKENRA = "tokenra";
+    /** User-defined endpoint: baseUrl must come from the member config section. */
     public static final String CUSTOM = "custom";
 
+    /**
+     * Static defaults for one provider id.
+     *
+     * @param baseUrl      default Chat Completions endpoint; empty for
+     *                     {@code custom} (must come from config)
+     * @param defaultModel model used when neither the member settings nor
+     *                     {@code llm.model} specify one; empty when the
+     *                     provider has no sensible single default
+     * @param requiresKey  whether the service rejects unauthenticated requests
+     */
     public record Preset(String baseUrl, String defaultModel, boolean requiresKey) {}
 
-    private static final Map<String, Preset> PRESETS = Map.of(
-        OPENAI,     new Preset("https://api.openai.com/v1", "gpt-4o-mini", true),
-        GROQ,       new Preset("https://api.groq.com/openai/v1", "llama-3.1-8b-instant", true),
-        GEMINI,     new Preset("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", true),
-        OLLAMA,     new Preset("http://127.0.0.1:11434/v1", "llama3.1", false),
-        LMSTUDIO,   new Preset("http://127.0.0.1:1234/v1", "", false),
-        OPENCODE_GO, new Preset("https://opencode.ai/zen/go/v1", "deepseek-v4-flash", true),
-        CUSTOM,     new Preset("", "", false)
+    private static final Map<String, Preset> PRESETS = Map.ofEntries(
+        Map.entry(OPENAI,     new Preset("https://api.openai.com/v1", "gpt-4o-mini", true)),
+        Map.entry(GROQ, new Preset("https://api.groq.com/openai/v1", "llama-3.1-8b-instant", true)),
+        Map.entry(GEMINI, new Preset("https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash", true)),
+        Map.entry(OLLAMA, new Preset("http://127.0.0.1:11434/v1", "llama3.1", false)),
+        Map.entry(LMSTUDIO, new Preset("http://127.0.0.1:1234/v1", "", false)),
+        Map.entry(OPENCODE_GO, new Preset("https://opencode.ai/zen/go/v1", "deepseek-v4-flash", true)),
+        Map.entry(DEEPSEEK, new Preset("https://api.deepseek.com", "deepseek-v4-flash", true)),
+        Map.entry(OPENROUTER, new Preset("https://openrouter.ai/api/v1", "", true)),
+        Map.entry(NEURALDEEP, new Preset("https://api.neuraldeep.ru/v1", "", true)),
+        Map.entry(ROUTERAI, new Preset("https://routerai.ru/api/v1", "", true)),
+        Map.entry(CLOUD_RU_FM, new Preset("https://foundation-models.api.cloud.ru/v1", "", true)),
+        Map.entry(SELECTEL_ROUTER, new Preset("https://api.selectel.ru/aig/v1", "", true)),
+        Map.entry(TOKENRA, new Preset("https://tokenra.io/v1/", "", true)),
+        Map.entry(CUSTOM,     new Preset("", "", false))
     );
 
     private LLMProviders() {}
@@ -54,8 +90,10 @@ public final class LLMProviders {
         }
         String presetBase = get(providerId).baseUrl();
         if (presetBase == null || presetBase.isEmpty()) {
-            throw new IllegalArgumentException(
-                "No base URL for provider '" + providerId + "'. Set llm.baseUrl in the config.");
+            // custom provider has no preset URL — caller must provide one
+            // via llm.baseUrl or vasyan-llm-members.toml. Return empty
+            // instead of throwing to avoid crashes in status commands.
+            return "";
         }
         return presetBase;
     }
