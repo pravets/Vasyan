@@ -38,9 +38,9 @@ import java.util.Set;
  *       as {@code !navigation.isDone()}; the monitor detects "navigation finished outside the
  *       goal" as {@code navDone &amp;&amp; !hasPath};</li>
  *   <li>after a visibly successful DIG_THROUGH / PLACE_SCAFFOLD / HOP_TELEPORT the glue calls
- *       {@link PathMonitor#onProgress()} so the escalation ladder does not advance while the
- *       recovery step is actually working; a failed step logs and skips {@code onProgress()},
- *       letting the grace window expire and the ladder move on.</li>
+ *       {@link PathMonitor#onRecoverySuccess()} so the step gets a fresh grace window WITHOUT
+ *       pretending the bot moved; a failed step logs and skips the callback, letting the grace
+ *       window expire and the ladder move on.</li>
  * </ul></p>
  *
  * <p>Thin glue by design: every decision comes from {@link PathMonitor}, each executed branch
@@ -205,7 +205,7 @@ public final class VasyanPathing {
         }
         VasyanMod.LOGGER.warn("Vasyan '{}': dug through {} at {}", name,
             state.getBlock().getName().getString(), pos.toShortString());
-        monitor.onProgress();
+        monitor.onRecoverySuccess();
     }
 
     /**
@@ -235,7 +235,7 @@ public final class VasyanPathing {
         stack.shrink(1);
         VasyanMod.LOGGER.warn("Vasyan '{}': placed scaffold {} at {}", name,
             blockItem.getBlock().getName().getString(), placePos.toShortString());
-        monitor.onProgress();
+        monitor.onRecoverySuccess();
     }
 
     /**
@@ -257,7 +257,7 @@ public final class VasyanPathing {
         vasyan.teleportTo(safe.getX() + CENTER_OFFSET, safe.getY(), safe.getZ() + CENTER_OFFSET);
         VasyanMod.LOGGER.warn("Vasyan '{}': hop-teleported past obstacle to {}",
             name, safe.toShortString());
-        monitor.onProgress();
+        monitor.onRecoverySuccess();
     }
 
     /** GIVE_UP: halt navigation; the owning action observes {@code monitor.finished()}. */

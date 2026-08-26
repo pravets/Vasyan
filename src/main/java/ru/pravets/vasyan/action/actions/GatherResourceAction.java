@@ -405,10 +405,20 @@ public class GatherResourceAction extends BaseAction {
             return;
         }
 
-        // Arrival IS the goal predicate now: standing adjacent to the mine
-        // target or within range of the station - no separate distance or
-        // watchdog bookkeeping anymore. Water needs no special case either:
-        // amphibious navigation swims across ponds on its own.
+        // A visible resource can be mined as soon as it is inside the real
+        // mining reach. Requiring near(target, 1) first deadlocks on blocks
+        // directly above/below the bot: horizontal navigation reaches dist=0,
+        // but 3D Chebyshev still does not (e.g. same X/Z, dy=2), so ROUTING
+        // falls into the recovery ladder while the target is already mineable.
+        if (routeTarget.equals(mineTarget) && canMineFromHere(mineTarget)) {
+            vasyan.getNavigation().stop();
+            phase = Phase.MINING;
+            return;
+        }
+
+        // Station arrival is the goal predicate; mine-target arrival above is
+        // reach-based. Water needs no special case: amphibious navigation
+        // swims across ponds on its own.
         if (routeGoal.hasReached(botPos)) {
             if (routeTarget.equals(mineTarget)) {
                 phase = Phase.MINING; // we arrived at the resource block
@@ -486,7 +496,7 @@ public class GatherResourceAction extends BaseAction {
         }
 
         // Not close enough: walk to it
-        if (vasyan.distanceToSqr(mineTarget.getX() + 0.5, mineTarget.getY() + 0.5, mineTarget.getZ() + 0.5) > MINE_REACH_SQ) {
+        if (!canMineFromHere(mineTarget)) {
             if (!vasyan.getNavigation().isInProgress()) {
                 vasyan.getNavigation().moveTo(mineTarget.getX() + 0.5, mineTarget.getY(), mineTarget.getZ() + 0.5, 1.0);
             }
@@ -561,6 +571,12 @@ public class GatherResourceAction extends BaseAction {
             return;
         }
         phase = Phase.SEARCH; // look for the next visible block
+    }
+
+    /** Whether the bot can break {@code target} from its current position. */
+    private boolean canMineFromHere(BlockPos target) {
+        return vasyan.distanceToSqr(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5)
+            <= MINE_REACH_SQ;
     }
 
     /** A log counts as a tree log when leaves are within 5 blocks. */

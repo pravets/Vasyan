@@ -149,6 +149,23 @@ class PathMonitorTest {
     }
 
     @Test
+    void successfulRecoveryStepGetsAGraceWindowButDoesNotRestartTheLadder() {
+        var m = monitor(40, 0);
+
+        stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
+        m.onRecoverySuccess(); // block really broke, but the bot has not moved yet
+
+        // The recovery success resets the grace window; it must NOT send the
+        // ladder back to entry. Otherwise place/dig can alternate forever when
+        // scaffolding creates the very obstacle DIG_THROUGH removes next.
+        for (int t = 1; t < 40; t++) {
+            assertEquals(PathMonitor.Decision.CONTINUE, tick(m), "grace tick " + t);
+        }
+        assertEquals(PathMonitor.Decision.PLACE_SCAFFOLD, tick(m),
+            "after a successful dig without motion the ladder must advance, not dig again");
+    }
+
+    @Test
     void navDoneReplansDoNotConsumeTheMainReplanBudget() {
         var m = monitor(40, 3);
 

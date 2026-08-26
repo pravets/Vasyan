@@ -13,8 +13,8 @@ import net.minecraft.core.BlockPos;
  *
  * <p>Decisions are made from counters only - no world access, no static state - so the monitor
  * is unit-testable without the Minecraft bootstrap. The glue executes each decision and calls
- * {@link #onProgress()} whenever the bot actually moved, mined or placed; progress resets the
- * internal stall window.
+ * {@link #onRecoverySuccess()} whenever a recovery action visibly succeeded; actual bot motion
+ * is observed directly by {@link #onTick(BlockPos, boolean, boolean, boolean, boolean)}.
  *
  * <p>Ladder semantics: a capability flag of false skips that ladder step and falls through to
  * the next one (DIG_THROUGH needs canDig, PLACE_SCAFFOLD needs canPlace); each emitted ladder
@@ -202,6 +202,17 @@ public final class PathMonitor {
         // before any recovery step is re-tried). This prevents the ladder from
         // re-firing DIG_THROUGH on every window after a single successful dig.
         step = Step.LADDER_ENTRY;
+        resetWindow();
+    }
+
+    /**
+     * Reports that the current recovery action visibly succeeded (a block was dug, a scaffold
+     * was placed, or the hop teleport happened) without claiming the bot moved. The step gets a
+     * fresh grace window, but the ladder position is preserved: if the bot remains stationary,
+     * the next stall window must ADVANCE the ladder instead of alternating mutually cancelling
+     * recovery steps (e.g. place a scaffold ahead, then dig that same scaffold back down).
+     */
+    public void onRecoverySuccess() {
         resetWindow();
     }
 
