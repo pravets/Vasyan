@@ -30,7 +30,16 @@ jobs:
         run: bash scripts/behavior/setup_server.sh /tmp/fgtest
 
       - name: Install mod into server
-        run: cp build/libs/vasyan-ai-mod-1.0.0-all.jar /tmp/fgtest/mods/
+        run: |
+          cp build/libs/vasyan-ai-mod-1.0.0-all.jar /tmp/fgtest/mods/
+          # Minimal LLM config for the headless run: one-member chain (ollama,
+          # no key needed). The endpoint is unreachable in CI by design - the
+          # pattern-fallback handler produces deterministic tasks.
+          mkdir -p /tmp/fgtest/config
+          cat > /tmp/fgtest/config/vasyan-common.toml <<'EOF'
+          [llm]
+          providerChain = ["ollama"]
+          EOF
 
       - name: Run chunk force-load behavior test
         # Runs both the original force-load scenario and the restart scenario
