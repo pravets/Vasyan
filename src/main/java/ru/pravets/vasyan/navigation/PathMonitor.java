@@ -1,6 +1,7 @@
 package ru.pravets.vasyan.navigation;
 
 import net.minecraft.core.BlockPos;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Pure stall/replan/fallback state machine for bot navigation.
@@ -34,6 +35,10 @@ public final class PathMonitor {
         CONTINUE,
         /** Stall detected or nav finished off-goal: rebuild the path. */
         REPLAN,
+        /** Vertical recovery: prepare/take one safe staircase step downward. */
+        DESCEND_STEP,
+        /** Vertical recovery: prepare/take one safe staircase step upward. */
+        ASCEND_STEP,
         /** Stall replans exhausted and digging is possible: break the block in the way. */
         DIG_THROUGH,
         /** Dig unavailable or exhausted and scaffolding possible: place a block underfoot. */
@@ -58,12 +63,15 @@ public final class PathMonitor {
     private final int maxReplans;
     private final int navDoneReplans;
     private final double navSpeed;
+    private final VerticalRecoverySettings verticalRecovery;
 
     private int stallCounter;
     /** Ticks spent waiting since the last navDone-triggered replan (pacing). */
     private int navDoneStallCounter;
     private int replansUsed;
     private int navDoneReplansUsed;
+    /** Scaffold blocks placed by vertical recovery during this monitor's lifetime. */
+    private int verticalScaffoldPlaced;
     /** Last observed bot cell; a change since then counts as forward motion. */
     private BlockPos lastStallPos;
 
@@ -73,7 +81,7 @@ public final class PathMonitor {
      * fallback step waiting out its own grace window.
      */
     private enum Step {
-        LADDER_ENTRY, DIG_THROUGH, PLACE_SCAFFOLD, HOP_TELEPORT, DONE
+        LADDER_ENTRY, DESCEND, ASCEND, DIG_THROUGH, PLACE_SCAFFOLD, HOP_TELEPORT, DONE
     }
 
     private Step step = Step.LADDER_ENTRY;
@@ -122,6 +130,14 @@ public final class PathMonitor {
      */
     public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
                        double navSpeed) {
+        this(goal, stallTicks, maxReplans, navDoneReplans, navSpeed, VerticalRecoverySettings.DEFAULT);
+    }
+
+    /**
+     * Creates a monitor with fully explicit budgets, navigation speed and vertical limits.
+     */
+    public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
+                       double navSpeed, VerticalRecoverySettings verticalRecovery) {
         if (goal == null) {
             throw new IllegalArgumentException("goal must not be null");
         }
@@ -137,11 +153,15 @@ public final class PathMonitor {
         if (navSpeed <= 0) {
             throw new IllegalArgumentException("navSpeed must be > 0: " + navSpeed);
         }
+        if (verticalRecovery == null) {
+            throw new IllegalArgumentException("verticalRecovery must not be null");
+        }
         this.goal = goal;
         this.stallTicks = stallTicks;
         this.maxReplans = maxReplans;
         this.navDoneReplans = navDoneReplans;
         this.navSpeed = navSpeed;
+        this.verticalRecovery = verticalRecovery;
     }
 
     /**
@@ -178,18 +198,22 @@ public final class PathMonitor {
             && (botPos.getX() != lastStallPos.getX() || botPos.getZ() != lastStallPos.getZ());
         lastStallPos = botPos;
         if (horizontallyMoved) {
+            // Vertical staircase steps always move to a horizontal neighbour.
+            // This reset is therefore the contract that re-arms DESCEND/ASCEND
+            // for the following step; onRecoverySuccess() intentionally does
+            // NOT do it, because preparation alone must preserve ladder order.
             step = Step.LADDER_ENTRY;
             resetWindow();
             return Decision.CONTINUE;
         }
         if (navDone && !hasPath) {
-            return handleNavDoneOutsideGoal(canDig, canPlace);
+            return handleNavDoneOutsideGoal(canDig, canPlace, botPos);
         }
         if (++stallCounter < stallTicks) {
             return Decision.CONTINUE;
         }
         resetWindow();
-        return escalate(canDig, canPlace);
+        return escalate(canDig, canPlace, botPos);
     }
 
     /**
@@ -214,6 +238,17 @@ public final class PathMonitor {
      */
     public void onRecoverySuccess() {
         resetWindow();
+    }
+
+    /** Records one vertical scaffold placement; glue calls only after a successful setBlock. */
+    public void recordVerticalScaffoldPlacement() {
+        verticalScaffoldPlaced++;
+        onRecoverySuccess();
+    }
+
+    /** Whether vertical recovery may place another scaffold block under its configured cap. */
+    public boolean canPlaceVerticalScaffold() {
+        return verticalScaffoldPlaced < verticalRecovery.maxScaffoldBlocks();
     }
 
     /** Goal this monitor drives towards. */
@@ -250,7 +285,7 @@ public final class PathMonitor {
         return step != Step.LADDER_ENTRY || navDoneReplansUsed > 0;
     }
 
-    private Decision handleNavDoneOutsideGoal(boolean canDig, boolean canPlace) {
+    private Decision handleNavDoneOutsideGoal(boolean canDig, boolean canPlace, BlockPos botPos) {
         // A finished path that ends off-goal replans at most once per stall
         // window: without this pacing the navDone branch burns all
         // navDoneReplans in consecutive ticks (each replan takes one tick to
@@ -261,8 +296,15 @@ public final class PathMonitor {
         }
         navDoneStallCounter = 0;
         if (navDoneReplansUsed < navDoneReplans) {
-            navDoneReplansUsed++;
-            return Decision.REPLAN;
+            // For a vertical target, one failed navDone REPLAN is enough: the
+            // remaining paced horizontal replans cannot bridge the Y delta and
+            // only waste hundreds of ticks on slow servers.
+            if (navDoneReplansUsed > 0 && verticalDecision(botPos) != null) {
+                navDoneReplansUsed = navDoneReplans;
+            } else {
+                navDoneReplansUsed++;
+                return Decision.REPLAN;
+            }
         }
         // Paced replans are exhausted, but the fallback ladder must still run:
         // hand control to the stall ladder starting at DIG_THROUGH (the main
@@ -270,7 +312,7 @@ public final class PathMonitor {
         // further replans). GIVE_UP only after the ladder itself is exhausted.
         this.replansUsed = Math.max(replansUsed, maxReplans);
         resetWindow();
-        return escalate(canDig, canPlace);
+        return escalate(canDig, canPlace, botPos);
     }
 
     /**
@@ -279,7 +321,7 @@ public final class PathMonitor {
      * step the monitor was sitting on just failed its grace window, so the monitor moves past
      * it; every newly entered step is emitted immediately (with a fresh window).
      */
-    private Decision escalate(boolean canDig, boolean canPlace) {
+    private Decision escalate(boolean canDig, boolean canPlace, BlockPos botPos) {
         boolean failed = step != Step.LADDER_ENTRY;
         while (true) {
             if (step == Step.LADDER_ENTRY) {
@@ -287,6 +329,15 @@ public final class PathMonitor {
                     replansUsed++;
                     return Decision.REPLAN;
                 }
+                Decision vertical = verticalDecision(botPos);
+                if (vertical != null) {
+                    step = vertical == Decision.DESCEND_STEP ? Step.DESCEND : Step.ASCEND;
+                    failed = false;
+                    return vertical;
+                }
+                step = Step.DIG_THROUGH;
+                failed = false;
+            } else if (step == Step.DESCEND || step == Step.ASCEND) {
                 step = Step.DIG_THROUGH;
                 failed = false;
             } else if (step == Step.DIG_THROUGH) {
@@ -314,6 +365,22 @@ public final class PathMonitor {
                 return Decision.GIVE_UP;
             }
         }
+    }
+
+    /** Chooses vertical staircase recovery when the stalled goal is mainly a Y problem. */
+    private @Nullable Decision verticalDecision(BlockPos botPos) {
+        if (!verticalRecovery.enabled() || botPos == null) {
+            return null;
+        }
+        BlockPos anchor = VasyanGoal.anchor(goal, botPos);
+        int dy = anchor.getY() - botPos.getY();
+        int horizontal = Math.max(Math.abs(anchor.getX() - botPos.getX()),
+            Math.abs(anchor.getZ() - botPos.getZ()));
+        if (Math.abs(dy) < 2 || Math.abs(dy) > verticalRecovery.maxDistance()
+                || horizontal > verticalRecovery.horizontalRange()) {
+            return null;
+        }
+        return dy < 0 ? Decision.DESCEND_STEP : Decision.ASCEND_STEP;
     }
 
     private void finish() {

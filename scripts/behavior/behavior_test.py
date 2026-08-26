@@ -435,6 +435,8 @@ def test_pathfinding_scenarios(workdir, jar_path):
        manhattan distance == 1, same y) - GoalAdjacent semantics.
     C) Wall dig-through: a dirt wall blocking the straight line must be dug
        through (DIG_THROUGH ladder step) and the bot reaches the target.
+    D/E/F) Vertical recovery: descend into a pit, climb back out, and refuse a
+       lava-filled descent without teleporting or falling in.
     """
     log_path = os.path.join(workdir, "behavior_nav.log")
     if os.path.exists(log_path):
@@ -505,7 +507,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             x, y, z = map(float, m.groups())
             return (int(round(x)), int(round(y)), int(round(z)))
 
-        def goto(tx, ty, tz, timeout_s, forbid_teleport=False, forbid_dig=False):
+        def goto(tx, ty, tz, timeout_s, forbid_teleport=False, forbid_dig=False, y_tolerance=4):
             offset_before = os.path.getsize(log_path)
             resp = rcon.command(f"vasyan tell Navigator иди к {tx} {ty} {tz}")
             print(f"  tell response: {resp!r}")
@@ -517,7 +519,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             reached = False
             while time.time() < deadline:
                 pos = bot_pos()
-                if pos and abs(pos[0] - tx) <= 2 and abs(pos[2] - tz) <= 2 and abs(pos[1] - ty) <= 4:
+                if pos and abs(pos[0] - tx) <= 2 and abs(pos[2] - tz) <= 2 and abs(pos[1] - ty) <= y_tolerance:
                     reached = True
                     break
                 time.sleep(3)
@@ -526,7 +528,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
                 segment = f.read()
             teleported = re.search(r"hop-teleported past obstacle", segment) is not None
             dug = re.search(r"dug through", segment) is not None
-            return reached, teleported, dug, pretrigger_fired
+            return reached, teleported, dug, pretrigger_fired, segment
 
         # ---- A) River crossing ----
         print("Scenario A: river crossing...")
@@ -535,7 +537,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         rcon.command(f"fill {wx + 6} {PLAT_Y - 2} {wz - 13} {wx + 9} {PLAT_Y} {wz + 13} minecraft:water")
         rcon.command(f"fill {wx + 6} {PLAT_Y + 1} {wz - 13} {wx + 9} {PLAT_Y + 4} {wz + 13} minecraft:air")
         target_ax = wx + 14
-        reached, teleported, dug, pretrigger_fired = goto(target_ax, PLAT_Y + 1, wz, 240)
+        reached, teleported, dug, pretrigger_fired, _ = goto(target_ax, PLAT_Y + 1, wz, 240)
         if not reached:
             pos = bot_pos()
             print(f"  [FAIL] river crossing: bot_pos={pos}, pre-trigger fired={pretrigger_fired}")
@@ -553,7 +555,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # so the assertion is Chebyshev<=2 AND not standing on top of the block.
         block_b = (wx + 18, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
-        reached, teleported, dug, pretrigger_fired = goto(block_b[0], block_b[1], block_b[2], 120)
+        reached, teleported, dug, pretrigger_fired, _ = goto(block_b[0], block_b[1], block_b[2], 120)
         pos = bot_pos()
         if not pos:
             print("  [FAIL] adjacent stand: could not read bot position")
@@ -587,7 +589,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             resp = rcon.command(f"data get block {cx} {cy} {cz}")
             print(f"  block {label} ({cx},{cy},{cz}): {resp[:120]!r}")
         target_cx = wx + 34
-        reached, teleported, dug, pretrigger_fired = goto(target_cx, PLAT_Y + 1, wz, 240)
+        reached, teleported, dug, pretrigger_fired, _ = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
             pos = bot_pos()
             print(f"  [FAIL] wall dig-through: bot_pos={pos}, pretrigger={pretrigger_fired}")
@@ -603,6 +605,91 @@ def test_pathfinding_scenarios(workdir, jar_path):
             return 1
         print(f"  -> dug through the wall and reached ({target_cx}, {PLAT_Y + 1}, {wz})")
 
+        # ---- D) Vertical descent into a coal-bearing pit ----
+        print("Scenario D: descend into pit...")
+        pos = bot_pos()
+        if not pos:
+            print("  [FAIL] vertical descent: could not read bot position")
+            return 1
+        # Give the bot disposable scaffold material. Vasyan has no /give command;
+        # summon a ground item and wait for its normal pickup loop.
+        rcon.command(
+            f"summon minecraft:item {pos[0]} {pos[1]} {pos[2]} "
+            "{Item:{id:\"minecraft:dirt\",Count:32b}}")
+        inv_deadline = time.time() + 30
+        while time.time() < inv_deadline:
+            inv_resp = rcon.command("vasyan inventory Navigator")
+            if "Dirt" in inv_resp or "dirt" in inv_resp:
+                break
+            time.sleep(2)
+        else:
+            print("  [FAIL] vertical descent: dirt was not picked up")
+            return 1
+
+        pit_x = wx + 36
+        # Three-block-deep pit with a coal ore marker at the bottom. Floor is
+        # y=197; the bot's feet start at y=201 and should end at y=198.
+        rcon.command(f"fill {pit_x} {PLAT_Y - 3} {wz - 2} {pit_x + 2} {PLAT_Y - 3} {wz + 2} minecraft:smooth_stone")
+        rcon.command(f"fill {pit_x} {PLAT_Y - 2} {wz - 2} {pit_x + 2} {PLAT_Y + 4} {wz + 2} minecraft:air")
+        rcon.command(f"setblock {pit_x + 2} {PLAT_Y - 3} {wz} minecraft:coal_ore")
+        time.sleep(1)
+        reached, teleported, dug, pretrigger_fired, descend_segment = goto(
+            pit_x + 2, PLAT_Y - 2, wz, 240, y_tolerance=1)
+        if not reached:
+            print(f"  [FAIL] vertical descent: bot_pos={bot_pos()}, pretrigger={pretrigger_fired}")
+            return 1
+        descended = "DESCEND step to" in descend_segment or "DESCEND placed support" in descend_segment
+        if not descended:
+            print("  [FAIL] vertical descent reached target without DESCEND_STEP evidence")
+            return 1
+        if teleported:
+            print("  [FAIL] vertical descent used hop-teleport")
+            return 1
+        print(f"  -> descended into coal pit at {bot_pos()}")
+
+        # ---- E) Vertical ascent back to the platform ----
+        print("Scenario E: climb out of pit...")
+        exit_x = wx + 40
+        reached, teleported, dug, pretrigger_fired, ascend_segment = goto(
+            exit_x, PLAT_Y + 1, wz, 240, y_tolerance=1)
+        if not reached:
+            print(f"  [FAIL] vertical ascent: bot_pos={bot_pos()}, pretrigger={pretrigger_fired}")
+            return 1
+        ascended = "ASCEND step to" in ascend_segment or "ASCEND placed support" in ascend_segment
+        if not ascended:
+            print("  [FAIL] vertical ascent reached target without ASCEND_STEP evidence")
+            return 1
+        if teleported:
+            print("  [FAIL] vertical ascent used hop-teleport")
+            return 1
+        print(f"  -> climbed out of pit to {bot_pos()}")
+
+        # ---- F) Unsafe lava descent is rejected ----
+        print("Scenario F: reject lava descent...")
+        # Reset to a clean part of the platform and build a small lava pocket.
+        rcon.command(f"tp {nav_uuid} {wx + 2} {PLAT_Y + 1} {wz}")
+        wait_for(log_path, r"Teleported", 30, "Navigator tp before lava scenario")
+        lava_x = wx + 6
+        rcon.command(f"fill {lava_x - 1} {PLAT_Y - 2} {wz - 1} {lava_x + 1} {PLAT_Y} {wz + 1} minecraft:lava")
+        rcon.command(f"fill {lava_x - 1} {PLAT_Y + 1} {wz - 1} {lava_x + 1} {PLAT_Y + 4} {wz + 1} minecraft:air")
+        time.sleep(2)
+        reached, teleported, dug, pretrigger_fired, lava_segment = goto(
+            lava_x, PLAT_Y - 2, wz, 120, y_tolerance=1)
+        pos_after_lava = bot_pos()
+        if reached:
+            print(f"  [FAIL] lava descent unexpectedly reached target: {pos_after_lava}")
+            return 1
+        if pos_after_lava is None or pos_after_lava[1] < PLAT_Y:
+            print(f"  [FAIL] lava descent dropped the bot into the pocket: {pos_after_lava}")
+            return 1
+        if teleported:
+            print("  [FAIL] lava scenario used hop-teleport")
+            return 1
+        if "DESCEND failed, no safe staircase step" not in lava_segment:
+            print("  [FAIL] lava scenario produced no unsafe-descent rejection log")
+            return 1
+        print(f"  -> refused lava descent, bot stayed at {pos_after_lava}")
+
         # Cleanup: remove bot and blocks best-effort.
         rcon.command("vasyan remove Navigator")
         rcon.command("stop")
@@ -610,7 +697,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
             proc.terminate()
-        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through).")
+        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through, vertical recovery).")
         return 0
     finally:
         if rcon is not None:

@@ -82,4 +82,37 @@ public interface VasyanGoal {
     static VasyanGoal any(VasyanGoal... goals) {
         return new GoalCompositeAny(goals);
     }
+
+    /**
+     * Resolves the concrete anchor navigation should steer towards. Composite goals use the
+     * sub-goal nearest to the bot; unknown/custom goals conservatively use the bot position.
+     */
+    static BlockPos anchor(VasyanGoal goal, BlockPos botPos) {
+        if (goal instanceof GoalNear near) {
+            return near.target();
+        }
+        if (goal instanceof GoalAdjacent adjacent) {
+            return adjacent.block();
+        }
+        if (goal instanceof GoalXZ xz) {
+            return new BlockPos(xz.x(), botPos.getY(), xz.z());
+        }
+        if (goal instanceof GoalY y) {
+            return new BlockPos(botPos.getX(), y.y(), botPos.getZ());
+        }
+        if (goal instanceof GoalCompositeAny any) {
+            BlockPos best = botPos;
+            int bestDist = Integer.MAX_VALUE;
+            for (VasyanGoal subGoal : any.goals()) {
+                BlockPos anchor = anchor(subGoal, botPos);
+                int dist = anchor.distManhattan(botPos);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = anchor;
+                }
+            }
+            return best;
+        }
+        return botPos;
+    }
 }

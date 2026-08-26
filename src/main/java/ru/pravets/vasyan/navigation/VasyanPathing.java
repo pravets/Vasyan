@@ -16,6 +16,7 @@ import net.minecraft.world.level.pathfinder.Path;
 import org.jetbrains.annotations.Nullable;
 
 import ru.pravets.vasyan.VasyanMod;
+import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanTeleportUtil;
 
@@ -108,12 +109,17 @@ public final class VasyanPathing {
             throw new IllegalArgumentException("speed must be > 0, got " + speed);
         }
 
-        BlockPos target = resolveTarget(goal, vasyan.blockPosition());
+        BlockPos target = VasyanGoal.anchor(goal, vasyan.blockPosition());
         steerTo(vasyan, target, speed);
         VasyanMod.LOGGER.info("Vasyan '{}': moveTo {} @{} steering to {}",
             vasyan.getVasyanName(), goal.describe(), speed, target.toShortString());
+        VerticalRecoverySettings verticalRecovery = new VerticalRecoverySettings(
+            VasyanConfig.NAV_VERTICAL_RECOVERY_ENABLED.get(),
+            VasyanConfig.NAV_VERTICAL_RECOVERY_MAX_DISTANCE.get(),
+            VasyanConfig.NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE.get(),
+            VasyanConfig.NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS.get());
         return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS,
-            PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed);
+            PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed, verticalRecovery);
     }
 
     /**
@@ -153,6 +159,8 @@ public final class VasyanPathing {
                 // steady progress or goal reached: nothing to do
             }
             case REPLAN -> replan(vasyan, monitor);
+            case DESCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
+            case ASCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND);
             case DIG_THROUGH -> digThrough(vasyan, monitor, diggable);
             case PLACE_SCAFFOLD -> placeScaffold(vasyan, monitor);
             case HOP_TELEPORT -> hopTeleport(vasyan, monitor);
@@ -162,10 +170,145 @@ public final class VasyanPathing {
 
     /** REPLAN: back to ground movement and rebuild the path to the goal anchor. */
     private static void replan(VasyanEntity vasyan, PathMonitor monitor) {
-        BlockPos target = resolveTarget(monitor.goal(), vasyan.blockPosition());
+        BlockPos target = VasyanGoal.anchor(monitor.goal(), vasyan.blockPosition());
         steerTo(vasyan, target, monitor.navSpeed());
         VasyanMod.LOGGER.debug("Vasyan '{}': REPLAN towards {} ({})",
             vasyan.getVasyanName(), monitor.goal().describe(), target.toShortString());
+    }
+
+    /**
+     * DESCEND_STEP / ASCEND_STEP: prepare and take one staircase step. The pure planner picks
+     * the cell; this glue performs the one world mutation or movement it asks for.
+     */
+    private static void verticalStep(VasyanEntity vasyan, PathMonitor monitor,
+                                     VerticalTraversalPlanner.Mode mode) {
+        String name = vasyan.getVasyanName();
+        Level level = vasyan.level();
+        BlockPos botPos = vasyan.blockPosition();
+        BlockPos anchor = VasyanGoal.anchor(monitor.goal(), botPos);
+        // Preparation and movement must happen in one monitor decision. If we
+        // only clear/place and wait for the next stall, PathMonitor would treat
+        // the successful preparation as a completed vertical step and advance
+        // the ladder to DIG_THROUGH without ever steering onto the new step.
+        for (int i = 0; i < 4; i++) {
+            var step = VerticalTraversalPlanner.nextStep(botPos, anchor, mode, verticalWorld(level));
+            if (step.isEmpty()) {
+                VasyanMod.LOGGER.warn("Vasyan '{}': {} failed, no safe staircase step near {} towards {}",
+                    name, mode, botPos.toShortString(), anchor.toShortString());
+                return;
+            }
+
+            VerticalTraversalPlanner.Step planned = step.get();
+            if (planned.action() == VerticalTraversalPlanner.Action.CLEAR) {
+                if (!clearVerticalStep(vasyan, planned)) {
+                    return;
+                }
+                continue;
+            }
+            if (planned.action() == VerticalTraversalPlanner.Action.PLACE_SUPPORT) {
+                if (!placeVerticalSupport(vasyan, monitor, planned)) {
+                    return;
+                }
+                continue;
+            }
+
+            if (isOpen(level, planned.standPos()) && isOpen(level, planned.standPos().above())) {
+                steerTo(vasyan, planned.standPos(), monitor.navSpeed());
+                VasyanMod.LOGGER.warn("Vasyan '{}': {} step to {}",
+                    name, mode, planned.standPos().toShortString());
+                monitor.onRecoverySuccess();
+            } else {
+                VasyanMod.LOGGER.warn("Vasyan '{}': {} could not enter {}",
+                    name, mode, planned.standPos().toShortString());
+            }
+            return;
+        }
+        VasyanMod.LOGGER.warn("Vasyan '{}': {} exceeded preparation chain near {}",
+            name, mode, botPos.toShortString());
+    }
+
+    /** Read-only world adapter for the pure vertical planner. */
+    private static VerticalTraversalPlanner.WorldView verticalWorld(Level level) {
+        return new VerticalTraversalPlanner.WorldView() {
+            @Override
+            public boolean isOpen(BlockPos pos) {
+                return VasyanPathing.isOpen(level, pos);
+            }
+
+            @Override
+            public boolean isSolidSupport(BlockPos pos) {
+                return level.getBlockState(pos).isCollisionShapeFullBlock(level, pos);
+            }
+
+            @Override
+            public boolean isBreakable(BlockPos pos) {
+                return VasyanPathing.isBreakable(level, pos);
+            }
+
+            @Override
+            public boolean isUnsafeLiquid(BlockPos pos) {
+                FluidState fluid = level.getBlockState(pos).getFluidState();
+                return fluid.is(Fluids.LAVA) || fluid.is(Fluids.FLOWING_LAVA);
+            }
+        };
+    }
+
+    /** Clears one breakable block selected by vertical recovery. */
+    private static boolean clearVerticalStep(VasyanEntity vasyan, VerticalTraversalPlanner.Step planned) {
+        String name = vasyan.getVasyanName();
+        Level level = vasyan.level();
+        BlockState state = level.getBlockState(planned.target());
+        if (!isBreakable(level, planned.target())) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} CLEAR skipped, {} no longer breakable",
+                name, planned.mode(), planned.target().toShortString());
+            return false;
+        }
+        vasyan.swing(InteractionHand.MAIN_HAND, true);
+        if (!level.destroyBlock(planned.target(), false)) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} failed to clear {} at {}",
+                name, planned.mode(), state.getBlock().getName().getString(),
+                planned.target().toShortString());
+            return false;
+        }
+        VasyanMod.LOGGER.warn("Vasyan '{}': {} cleared {} at {}",
+            name, planned.mode(), state.getBlock().getName().getString(),
+            planned.target().toShortString());
+        return true;
+    }
+
+    /** Places one support block selected by vertical recovery, capped by the monitor budget. */
+    private static boolean placeVerticalSupport(VasyanEntity vasyan, PathMonitor monitor,
+                                             VerticalTraversalPlanner.Step planned) {
+        String name = vasyan.getVasyanName();
+        if (!monitor.canPlaceVerticalScaffold()) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} scaffold budget exhausted for {}",
+                name, planned.mode(), monitor.goal().describe());
+            return false;
+        }
+        ItemStack stack = findScaffoldStack(vasyan);
+        if (stack == null) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} failed, no scaffold block",
+                name, planned.mode());
+            return false;
+        }
+        Level level = vasyan.level();
+        if (!isOpen(level, planned.target())) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} support spot occupied at {}",
+                name, planned.mode(), planned.target().toShortString());
+            return false;
+        }
+        BlockItem blockItem = (BlockItem) stack.getItem();
+        if (!level.setBlockAndUpdate(planned.target(), blockItem.getBlock().defaultBlockState())) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} failed to place support at {}",
+                name, planned.mode(), planned.target().toShortString());
+            return false;
+        }
+        stack.shrink(1);
+        VasyanMod.LOGGER.warn("Vasyan '{}': {} placed support {} at {}",
+            name, planned.mode(), blockItem.getBlock().getName().getString(),
+            planned.target().toShortString());
+        monitor.recordVerticalScaffoldPlacement();
+        return true;
     }
 
     /**
@@ -245,7 +388,7 @@ public final class VasyanPathing {
      */
     private static void hopTeleport(VasyanEntity vasyan, PathMonitor monitor) {
         String name = vasyan.getVasyanName();
-        BlockPos anchor = resolveTarget(monitor.goal(), vasyan.blockPosition());
+        BlockPos anchor = VasyanGoal.anchor(monitor.goal(), vasyan.blockPosition());
         Level level = vasyan.level();
         BlockPos safe = VasyanTeleportUtil.findSafePos(anchor,
             (x, y, z) -> isSafeHopSpot(level, vasyan, x, y, z));
@@ -268,44 +411,6 @@ public final class VasyanPathing {
     }
 
     /**
-     * Maps a goal to the concrete block position navigation should steer towards (see
-     * {@link #moveTo} for the per-type rules).
-     */
-    private static BlockPos resolveTarget(VasyanGoal goal, BlockPos botPos) {
-        if (goal instanceof GoalNear near) {
-            return near.target();
-        }
-        if (goal instanceof GoalAdjacent adjacent) {
-            return adjacent.block();
-        }
-        if (goal instanceof GoalXZ xz) {
-            return new BlockPos(xz.x(), botPos.getY(), xz.z());
-        }
-        if (goal instanceof GoalY y) {
-            return new BlockPos(botPos.getX(), y.y(), botPos.getZ());
-        }
-        if (goal instanceof GoalCompositeAny any) {
-            return nearestAnchor(any.goals(), botPos);
-        }
-        return botPos;
-    }
-
-    /** Anchor of a composite goal nearest to the bot (manhattan metric). */
-    private static BlockPos nearestAnchor(VasyanGoal[] goals, BlockPos botPos) {
-        BlockPos best = botPos;
-        int bestDist = Integer.MAX_VALUE;
-        for (VasyanGoal goal : goals) {
-            BlockPos anchor = resolveTarget(goal, botPos);
-            int dist = anchor.distManhattan(botPos);
-            if (dist < bestDist) {
-                bestDist = dist;
-                best = anchor;
-            }
-        }
-        return best;
-    }
-
-    /**
      * Position directly ahead along the movement direction: the next path node while a path
      * is being followed. When navigation is DONE (e.g. the path dead-ends right before an
      * obstacle), the dead path's last node is the bot's own cell and would never be diggable,
@@ -317,7 +422,7 @@ public final class VasyanPathing {
                 && path.getNextNodeIndex() < path.getNodeCount()) {
             return path.getNextNodePos();
         }
-        BlockPos target = resolveTarget(goal, vasyan.blockPosition());
+        BlockPos target = VasyanGoal.anchor(goal, vasyan.blockPosition());
         int dx = Integer.compare(target.getX(), vasyan.blockPosition().getX());
         int dz = Integer.compare(target.getZ(), vasyan.blockPosition().getZ());
         net.minecraft.core.Direction dir;
@@ -345,7 +450,7 @@ public final class VasyanPathing {
     @Nullable
     private static BlockPos findDiggableAhead(VasyanEntity vasyan, VasyanGoal goal) {
         Level level = vasyan.level();
-        BlockPos target = resolveTarget(goal, vasyan.blockPosition());
+        BlockPos target = VasyanGoal.anchor(goal, vasyan.blockPosition());
         int dx = Integer.compare(target.getX(), vasyan.blockPosition().getX());
         int dz = Integer.compare(target.getZ(), vasyan.blockPosition().getZ());
         net.minecraft.core.Direction dir;
@@ -410,16 +515,18 @@ public final class VasyanPathing {
     }
 
     /**
-     * First inventory stack usable as scaffold: a block item whose block forms a full
-     * collision cube (dirt, cobblestone, planks, ...). Same criterion as the tree-pillar
-     * support: partial shapes (slabs, torches) cannot be stood on.
+     * Best inventory stack usable as scaffold: a block item whose block forms a full collision
+     * cube. Prefer disposable ground materials over logs/planks and never consider partial
+     * shapes (slabs, torches) standable support.
      *
-     * @return the first matching stack or {@code null} when the inventory holds none
+     * @return the cheapest matching stack or {@code null} when the inventory holds none
      */
     @Nullable
     private static ItemStack findScaffoldStack(VasyanEntity vasyan) {
         Level level = vasyan.level();
         BlockPos refPos = vasyan.blockPosition();
+        ItemStack best = null;
+        int bestScore = Integer.MAX_VALUE;
         for (ItemStack stack : vasyan.getInventory().getStacks()) {
             if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem blockItem)) {
                 continue;
@@ -429,9 +536,30 @@ public final class VasyanPathing {
                     || !state.isCollisionShapeFullBlock(level, refPos)) {
                 continue;
             }
-            return stack;
+            int score = scaffoldScore(state);
+            if (score < bestScore) {
+                best = stack;
+                bestScore = score;
+            }
         }
-        return null;
+        return best;
+    }
+
+    /** Lower score = more disposable scaffold material. */
+    private static int scaffoldScore(BlockState state) {
+        Block block = state.getBlock();
+        if (block == Blocks.DIRT || block == Blocks.GRASS_BLOCK || block == Blocks.SAND
+                || block == Blocks.GRAVEL || block == Blocks.COARSE_DIRT || block == Blocks.ROOTED_DIRT) {
+            return 0;
+        }
+        if (block == Blocks.COBBLESTONE || block == Blocks.STONE || block == Blocks.DEEPSLATE
+                || block == Blocks.NETHERRACK || block == Blocks.BLACKSTONE) {
+            return 1;
+        }
+        if (state.is(net.minecraft.tags.BlockTags.PLANKS) || state.is(net.minecraft.tags.BlockTags.LOGS)) {
+            return 2;
+        }
+        return 3;
     }
 
     /**

@@ -124,6 +124,10 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
+    public static final ForgeConfigSpec.BooleanValue NAV_VERTICAL_RECOVERY_ENABLED;
+    public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_MAX_DISTANCE;
+    public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE;
+    public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS;
     public static final ForgeConfigSpec.IntValue ACTION_TICK_DELAY;
     public static final ForgeConfigSpec.BooleanValue ENABLE_CHAT_RESPONSES;
     public static final ForgeConfigSpec.IntValue MAX_ACTIVE_VASYANS;
@@ -281,6 +285,22 @@ public class VasyanConfig {
         NAV_SEARCH_RADIUS = builder
             .comment("Maximum distance in blocks to search for a route")
             .defineInRange("searchRadius", 64, 16, 256);
+
+        NAV_VERTICAL_RECOVERY_ENABLED = builder
+            .comment("Build safe staircase steps when a nearby goal is above/below the bot")
+            .define("verticalRecoveryEnabled", true);
+
+        NAV_VERTICAL_RECOVERY_MAX_DISTANCE = builder
+            .comment("Maximum absolute Y difference vertical recovery will attempt")
+            .defineInRange("verticalRecoveryMaxDistance", 16, 2, 64);
+
+        NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE = builder
+            .comment("Maximum horizontal Chebyshev distance at which vertical recovery may run")
+            .defineInRange("verticalRecoveryHorizontalRange", 6, 2, 32);
+
+        NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS = builder
+            .comment("Maximum scaffold blocks one vertical recovery may place")
+            .defineInRange("verticalRecoveryMaxScaffoldBlocks", 32, 1, 128);
 
         builder.pop();
 

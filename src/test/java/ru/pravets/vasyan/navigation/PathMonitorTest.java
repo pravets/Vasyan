@@ -149,6 +149,71 @@ class PathMonitorTest {
     }
 
     @Test
+    void verticalGoalBelowUsesDescendStepBeforeDigging() {
+        var goal = VasyanGoal.near(new BlockPos(2, 62, 2), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
+
+        assertEquals(PathMonitor.Decision.DESCEND_STEP,
+            m.onTick(BOT, true, false, true, true));
+    }
+
+    @Test
+    void verticalGoalAboveUsesAscendStepBeforeDigging() {
+        var goal = VasyanGoal.near(new BlockPos(2, 66, 2), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
+
+        assertEquals(PathMonitor.Decision.ASCEND_STEP,
+            m.onTick(BOT, true, false, true, true));
+    }
+
+    @Test
+    void verticalNavDoneUsesOneReplanThenStairs() {
+        var goal = VasyanGoal.near(new BlockPos(2, 62, 2), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 10, 1.0, settings);
+
+        assertEquals(PathMonitor.Decision.REPLAN,
+            m.onTick(BOT, true, false, true, true));
+        assertEquals(PathMonitor.Decision.DESCEND_STEP,
+            m.onTick(BOT, true, false, true, true),
+            "vertical targets must not burn all ten paced navDone replans");
+    }
+
+    @Test
+    void successfulVerticalMovementReArmsAnotherVerticalStep() {
+        var goal = VasyanGoal.near(new BlockPos(2, 60, 2), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
+
+        assertEquals(PathMonitor.Decision.DESCEND_STEP,
+            m.onTick(BOT, true, false, true, true));
+        BlockPos firstStep = BOT.offset(1, -1, 0);
+        assertEquals(PathMonitor.Decision.CONTINUE,
+            m.onTick(firstStep, false, true, true, true),
+            "moving onto the staircase step is real progress and re-arms the ladder");
+        assertEquals(PathMonitor.Decision.DESCEND_STEP,
+            m.onTick(firstStep, true, false, true, true),
+            "the next stalled route must be allowed to prepare the following step");
+    }
+
+    @Test
+    void verticalRecoverySkipsFarOrDisabledGoals() {
+        var farGoal = VasyanGoal.near(new BlockPos(20, 60, 20), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var far = new PathMonitor(farGoal, 1, 0, 0, 1.0, settings);
+        assertEquals(PathMonitor.Decision.DIG_THROUGH,
+            far.onTick(BOT, true, false, true, true));
+
+        var nearGoal = VasyanGoal.near(new BlockPos(2, 62, 2), 1);
+        var disabled = new PathMonitor(nearGoal, 1, 0, 0, 1.0,
+            new VerticalRecoverySettings(false, 8, 6));
+        assertEquals(PathMonitor.Decision.DIG_THROUGH,
+            disabled.onTick(BOT, true, false, true, true));
+    }
+
+    @Test
     void successfulRecoveryStepGetsAGraceWindowButDoesNotRestartTheLadder() {
         var m = monitor(40, 0);
 

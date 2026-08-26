@@ -57,6 +57,8 @@ public class GatherResourceAction extends BaseAction {
     private static final int FELL_MAX_LOGS = 200; // connected logs per tree (forest guard)
     private static final int FELL_WAIT_TICKS = 25; // vacuum pickup grace period for pillar material
     private static final int UNREACHABLE_TARGETS_LIMIT = 32;
+    private static final int VERTICAL_TRAP_HORIZONTAL_RADIUS = 4;
+    private static final int VERTICAL_TRAP_VERTICAL_RADIUS = 6;
     private static final int NEARBY_SCAN_RADIUS = 10; // cube scan around the bot (no line of sight)
     private static final int STATUS_INTERVAL = 40; // ticks between STATUS debug pings (20s @ 2TPS)
     private static final double PROGRESS_MOVE_DISTANCE_SQ = 8.0 * 8.0; // moving this far = progress
@@ -107,6 +109,8 @@ public class GatherResourceAction extends BaseAction {
 
     /** Visible-but-unreachable targets: skip them instead of looping forever. */
     private final Set<BlockPos> unreachableTargets = new HashSet<>();
+    /** Centers of failed vertical pockets; nearby targets in the same pit are skipped too. */
+    private final List<BlockPos> verticalTrapCenters = new ArrayList<>();
 
     // Fell mode state
     private boolean fellMode;
@@ -168,6 +172,7 @@ public class GatherResourceAction extends BaseAction {
         fellLogs.clear();
         fellPillar.clear();
         unreachableTargets.clear();
+        verticalTrapCenters.clear();
         origin = vasyan.blockPosition();
         searchState = new ResourceSearchPlanner.SearchState(origin, 0, 0, vasyan.level().getGameTime());
 
@@ -320,6 +325,7 @@ public class GatherResourceAction extends BaseAction {
         BlockPos center = vasyan.blockPosition();
         BlockPos mine = all.stream()
             .filter(p -> !unreachableTargets.contains(p))
+            .filter(p -> !isInVerticalTrap(p))
             .filter(p -> !isUnderwaterTarget(p)) // swamp: never dive for a log (drop loss, air)
             .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)))
             .orElse(null);
@@ -451,6 +457,7 @@ public class GatherResourceAction extends BaseAction {
         vasyan.getNavigation().stop();
         if (mineTarget != null && routeTarget.equals(mineTarget)) {
             rememberUnreachable(mineTarget);
+            rememberVerticalTrap(mineTarget);
             debugLog("ROUTING", "target unreachable, skipping " + mineTarget);
             mineTarget = null;
             if (fellGatheringMaterial) {
@@ -507,6 +514,7 @@ public class GatherResourceAction extends BaseAction {
                 ticksOnMine = 0;
                 vasyan.getNavigation().stop();
                 rememberUnreachable(mineTarget);
+                rememberVerticalTrap(mineTarget);
                 if (fellMode && !fellGatheringMaterial) {
                     // Unreachable cleanup branch: drop it from the CURRENT
                     // tree's list only, keep chopping the rest.
@@ -1016,6 +1024,32 @@ public class GatherResourceAction extends BaseAction {
             unreachableTargets.clear(); // keep the set bounded
         }
         unreachableTargets.add(pos);
+    }
+
+    /** Remembers a failed vertical pocket so gather does not retry every ore in the same pit. */
+    private void rememberVerticalTrap(BlockPos pos) {
+        int dy = Math.abs(pos.getY() - vasyan.blockPosition().getY());
+        if (dy < 2) {
+            return;
+        }
+        if (verticalTrapCenters.size() >= UNREACHABLE_TARGETS_LIMIT) {
+            verticalTrapCenters.remove(0); // bounded FIFO; older traps become eligible again
+        }
+        verticalTrapCenters.add(pos.immutable());
+    }
+
+    /** Whether {@code pos} belongs to a recently failed vertical pocket. */
+    private boolean isInVerticalTrap(BlockPos pos) {
+        for (BlockPos center : verticalTrapCenters) {
+            int horizontal = Math.max(Math.abs(pos.getX() - center.getX()),
+                Math.abs(pos.getZ() - center.getZ()));
+            int vertical = Math.abs(pos.getY() - center.getY());
+            if (horizontal <= VERTICAL_TRAP_HORIZONTAL_RADIUS
+                    && vertical <= VERTICAL_TRAP_VERTICAL_RADIUS) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
