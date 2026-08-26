@@ -19,14 +19,23 @@ public final class LLMProviders {
     public static final String GEMINI = "gemini";
     public static final String OLLAMA = "ollama";
     public static final String LMSTUDIO = "lmstudio";
+    /** OpenCode Go subscription endpoint (opencode.ai/zen/go/v1). */
     public static final String OPENCODE_GO = "opencode-go";
+    /** DeepSeek official API. */
     public static final String DEEPSEEK = "deepseek";
+    /** OpenRouter multi-model gateway. */
     public static final String OPENROUTER = "openrouter";
+    /** NeuralDeep (api.neuraldeep.ru) OpenAI-compatible gateway. */
     public static final String NEURALDEEP = "neuraldeep";
+    /** RouterAI (routerai.ru) multi-model gateway. */
     public static final String ROUTERAI = "routerai";
+    /** Cloud.ru Foundation Models endpoint. */
     public static final String CLOUD_RU_FM = "cloud-ru-fm";
+    /** Selectel AI Gateway (api.selectel.ru/aig/v1). */
     public static final String SELECTEL_ROUTER = "selectel-router";
+    /** TokenRA (tokenra.io) OpenAI-compatible gateway. */
     public static final String TOKENRA = "tokenra";
+    /** User-defined endpoint: baseUrl must come from the member config section. */
     public static final String CUSTOM = "custom";
 
     /**
