@@ -67,6 +67,12 @@ public class VasyanMod {
         // it (a broken file would otherwise crash the game during mod loading).
         VasyanConfig.quarantineUnparseableFile();
 
+        // Silence known-harmless EventSubclassTransformer CNFE spam against the
+        // shaded resilience4j/vavr classes (they first load on ForkJoinPool
+        // threads where the TCCL cannot see the shaded jar). Narrow filter:
+        // only those packages are denied, real event-bus errors still log.
+        ru.pravets.vasyan.util.EventBusShadedClassLogFilter.install();
+
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, VasyanConfig.SPEC);
 
         modEventBus.addListener(this::commonSetup);
