@@ -25,6 +25,8 @@ class ProviderChainClientTest {
         /** Responses to hand out in order; when empty, hands out success forever. */
         private final Deque<Object> script = new ArrayDeque<>();
         int attempts;
+        /** Params of the most recent sendAsync call (for override assertions). */
+        volatile Map<String, Object> lastParams;
 
         FakeMember(String id) {
             this.id = id;
@@ -51,6 +53,7 @@ class ProviderChainClientTest {
         @Override
         public CompletableFuture<LLMResponse> sendAsync(String prompt, Map<String, Object> params) {
             attempts++;
+            lastParams = params;
             Object next = script.isEmpty() ? "ok" : script.poll();
             if (next instanceof String kind) {
                 LLMResponse.Builder builder = LLMResponse.builder()
@@ -231,5 +234,46 @@ class ProviderChainClientTest {
         }
         assertEquals(0, switches.size(), "no notifications without an actual switch");
         assertEquals(0, backup.attempts);
+    }
+
+    @Test
+    void callerModelOverrideIsNotForwardedToMembers() throws Exception {
+        // Regression (PR #38 live log): TaskPlanner puts the ACTIVE provider's
+        // model into params; OpenAICompatibleClient prefers params over its own
+        // configured model -> every chain member ended up requesting the head's
+        // model (all providers saw "ox-alpha"). The chain must strip it so each
+        // member speaks with ITS OWN configured model.
+        FakeMember head = new FakeMember("head").thenError();
+        FakeMember backup = new FakeMember("backup");
+
+        ProviderChainClient chain = new ProviderChainClient(List.of(head, backup), null, 60);
+
+        Map<String, Object> params = Map.of(
+            "model", "head-model",
+            "maxTokens", 100,
+            "temperature", 0.7);
+        LLMResponse response = chain.sendAsync("prompt", params).get();
+
+        assertEquals("backup", response.getProviderId());
+        assertNotNull(head.lastParams);
+        assertNotNull(backup.lastParams);
+        assertFalse(head.lastParams.containsKey("model"),
+            "head must not receive the caller's model override");
+        assertFalse(backup.lastParams.containsKey("model"),
+            "backup must not receive the caller's model override");
+        assertEquals(100, backup.lastParams.get("maxTokens"),
+            "other params must pass through untouched");
+    }
+
+    @Test
+    void paramsWithoutModelPassThroughUnchanged() throws Exception {
+        FakeMember head = new FakeMember("head");
+        ProviderChainClient chain = new ProviderChainClient(List.of(head), null, 60);
+
+        Map<String, Object> params = Map.of("maxTokens", 100);
+        chain.sendAsync("prompt", params).get();
+
+        assertSame(params, head.lastParams,
+            "no model key -> params map is forwarded as-is (no copy overhead)");
     }
 }

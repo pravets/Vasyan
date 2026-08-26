@@ -96,6 +96,13 @@ public class ProviderChainClient implements AsyncLLMClient {
 
     @Override
     public CompletableFuture<LLMResponse> sendAsync(String prompt, Map<String, Object> params) {
+        // Strip the caller-supplied "model" override: it carries the ACTIVE
+        // provider's model (TaskPlanner.getActiveModel()) and would otherwise
+        // force every chain member to request the head's model
+        // (OpenAICompatibleClient.buildRequestBody prefers params over its
+        // own configured model). Each member must speak with ITS OWN model.
+        Map<String, Object> memberParams = withoutModelOverride(params);
+
         int size = members.size();
         int startIndex = Math.min(activeIndex.get(), size - 1);
 
@@ -108,12 +115,12 @@ public class ProviderChainClient implements AsyncLLMClient {
         if (shouldProbeHead(startIndex)) {
             AsyncLLMClient head = members.get(0);
             if (markHeadAttempt()) {
-                return head.sendAsync(prompt, params)
+                return head.sendAsync(prompt, memberParams)
                     .thenCompose(response -> {
                         if (!isUsable(response)) {
                             markFailure(0);
                             LOGGER.debug("[chain] recovery probe of '{}' still failing", head.getProviderId());
-                            return walk(prompt, params, startIndex);
+                            return walk(prompt, memberParams, startIndex);
                         }
                         // Recovered: CLEAR the stale failure timestamp so the
                         // next request does not skip the head due to its old
@@ -136,13 +143,28 @@ public class ProviderChainClient implements AsyncLLMClient {
                             ? ce.getCause() : throwable;
                         LOGGER.debug("[chain] recovery probe of '{}' threw: {}",
                             head.getProviderId(), cause.getMessage());
-                        return walk(prompt, params, startIndex);
+                        return walk(prompt, memberParams, startIndex);
                     });
             }
             // Lost the race: serve via the normal walk.
         }
 
-        return walk(prompt, params, startIndex);
+        return walk(prompt, memberParams, startIndex);
+    }
+
+    /**
+     * Returns params without the "model" key. The "model" entry produced by
+     * the caller describes the ACTIVE provider only; forwarding it to every
+     * member would make all of them request the head's model. Returns the
+     * original map when there is nothing to strip.
+     */
+    private static Map<String, Object> withoutModelOverride(Map<String, Object> params) {
+        if (params == null || !params.containsKey("model")) {
+            return params;
+        }
+        Map<String, Object> copy = new java.util.HashMap<>(params);
+        copy.remove("model");
+        return copy;
     }
 
     /**
