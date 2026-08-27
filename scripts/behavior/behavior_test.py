@@ -729,7 +729,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         time.sleep(20)
         rcon.command("vasyan tell Navigator stop")
         block_check = rcon.command(
-            f"execute if block {hidden_coal_x} {PLAT_Y - 1} {wz} minecraft:coal_ore run say HIDDEN_COAL_INTACT")
+            f"execute if block {hidden_coal_x} {PLAT_Y - 1} {wz} minecraft:coal_ore")
         inv_resp = rcon.command("vasyan inventory Navigator")
         print(f"  hidden coal check: {block_check!r}; inventory: {inv_resp!r}")
         if "Test passed" not in block_check and "HIDDEN_COAL_INTACT" not in block_check:
