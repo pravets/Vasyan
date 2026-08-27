@@ -11,7 +11,9 @@ class LLMFallbackHandlerTest {
     void gatherCoalFallbackKeepsCoalResourceAndQuantity() {
         var handler = new LLMFallbackHandler();
 
-        String content = handler.generateFallback("gather 1 coal", null).getContent();
+        String content = handler.generateFallback(
+            "=== YOUR SITUATION ===\nPosition: [144, 201, 0]\nCURRENT REQUEST: gather 1 coal", null)
+            .getContent();
 
         assertTrue(content.contains("\"action\":\"gather\""));
         assertTrue(content.contains("\"resource\":\"coal\""));
