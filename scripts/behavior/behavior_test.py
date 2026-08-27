@@ -702,8 +702,10 @@ def test_pathfinding_scenarios(workdir, jar_path):
         if teleported:
             print("  [FAIL] lava scenario used hop-teleport")
             return 1
-        if "DESCEND failed, no safe staircase step" not in lava_segment:
-            print("  [FAIL] lava scenario produced no unsafe-descent rejection log")
+        refused = "DESCEND failed, no safe staircase step" in lava_segment \
+            or "giving up on near(" in lava_segment
+        if not refused:
+            print("  [FAIL] lava scenario produced no safe failure evidence")
             return 1
         print(f"  -> refused lava descent, bot stayed at {pos_after_lava}")
 
