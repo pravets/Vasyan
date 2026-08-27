@@ -56,3 +56,4 @@ jobs:
           path: |
             /tmp/fgtest/behavior.log
             /tmp/fgtest/behavior_restart.log
+            /tmp/fgtest/behavior_nav.log
