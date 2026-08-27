@@ -119,7 +119,8 @@ public final class VasyanPathing {
             VasyanConfig.NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE.get(),
             VasyanConfig.NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS.get());
         return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS,
-            PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed, verticalRecovery);
+            PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed, verticalRecovery,
+            VasyanConfig.NAV_HOP_TELEPORT_ENABLED.get());
     }
 
     /**
@@ -339,16 +340,31 @@ public final class VasyanPathing {
             return;
         }
         Level level = vasyan.level();
-        BlockState state = level.getBlockState(pos);
         vasyan.swing(InteractionHand.MAIN_HAND, true);
-        if (!level.destroyBlock(pos, false)) {
-            VasyanMod.LOGGER.warn("Vasyan '{}': failed to break {} at {}", name,
-                state.getBlock().getName().getString(), pos.toShortString());
-            return;
+
+        boolean broke = false;
+        int botY = vasyan.blockPosition().getY();
+        // findDiggableAhead only returns foot/head cells; clear the whole 1x2 corridor.
+        BlockPos[] corridorCells = pos.getY() == botY
+            ? new BlockPos[]{pos, pos.above()}
+            : new BlockPos[]{pos, pos.below()};
+        for (BlockPos cell : corridorCells) {
+            if (!isBreakable(level, cell)) {
+                continue;
+            }
+            BlockState state = level.getBlockState(cell);
+            if (!level.destroyBlock(cell, false)) {
+                VasyanMod.LOGGER.warn("Vasyan '{}': failed to break {} at {}", name,
+                    state.getBlock().getName().getString(), cell.toShortString());
+                continue;
+            }
+            VasyanMod.LOGGER.warn("Vasyan '{}': dug through {} at {}", name,
+                state.getBlock().getName().getString(), cell.toShortString());
+            broke = true;
         }
-        VasyanMod.LOGGER.warn("Vasyan '{}': dug through {} at {}", name,
-            state.getBlock().getName().getString(), pos.toShortString());
-        monitor.onRecoverySuccess();
+        if (broke) {
+            monitor.onRecoverySuccess();
+        }
     }
 
     /**

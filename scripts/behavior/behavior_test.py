@@ -129,7 +129,7 @@ def start_server(workdir, jar_path, log_path):
     return proc
 
 
-def wait_for(log_path, pattern, timeout, label):
+def wait_for(log_path, pattern, timeout, label, offset=0):
     """Wait until log_path contains a line matching regex pattern.
 
     Reads incrementally from the last position to avoid re-scanning the whole
@@ -139,7 +139,7 @@ def wait_for(log_path, pattern, timeout, label):
     """
     regex = re.compile(pattern)
     deadline = time.time() + timeout
-    last = 0
+    last = offset
     while time.time() < deadline:
         with open(log_path, "r", errors="replace") as f:
             f.seek(last)
@@ -177,8 +177,10 @@ def assert_chunk_force_loaded(rcon, far_x, z=0):
 
 
 def assert_bot_ticks(rcon, log_path, name):
+    offset = os.path.getsize(log_path)
     rcon.command(f"vasyan tell {name} gather 50 wood")
-    assert wait_for(log_path, r"async planning complete: 1 tasks queued", 120, f"{name} ticks in far chunk")
+    assert wait_for(log_path, r"async planning complete: 1 tasks queued", 120,
+                    f"{name} ticks in far chunk", offset=offset)
 
 
 def test_chunk_persists_after_restart(workdir, jar_path, expected_far_x):
@@ -690,6 +692,103 @@ def test_pathfinding_scenarios(workdir, jar_path):
             return 1
         print(f"  -> refused lava descent, bot stayed at {pos_after_lava}")
 
+        # ---- G) Hidden coal is not x-ray mined ----
+        print("Scenario G: hidden coal must stay hidden...")
+        rcon.command("vasyan tell Navigator stop")
+        hidden_base_x = wx + 21
+        tp_resp = rcon.command(f"tp {nav_uuid} {hidden_base_x} {PLAT_Y + 1} {wz}")
+        if "Teleported" not in tp_resp:
+            print(f"  [FAIL] hidden coal setup teleport: {tp_resp!r}")
+            return 1
+        hidden_coal_x = hidden_base_x + 1
+        # The ore is one block below the floor. Old code found it via the no-LOS
+        # 10-block scan and could break it from the surface because reach<=5.
+        rcon.command(f"setblock {hidden_coal_x} {PLAT_Y - 1} {wz} minecraft:coal_ore")
+        hidden_offset = os.path.getsize(log_path)
+        gather_resp = rcon.command("vasyan tell Navigator gather 1 coal")
+        print(f"  hidden-coal gather response: {gather_resp!r}")
+        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "hidden coal gather action"):
+            return 1
+        time.sleep(20)
+        rcon.command("vasyan tell Navigator stop")
+        block_check = rcon.command(
+            f"execute if block {hidden_coal_x} {PLAT_Y - 1} {wz} minecraft:coal_ore run say HIDDEN_COAL_INTACT")
+        inv_resp = rcon.command("vasyan inventory Navigator")
+        print(f"  hidden coal check: {block_check!r}; inventory: {inv_resp!r}")
+        if "Test passed" not in block_check and "HIDDEN_COAL_INTACT" not in block_check:
+            print("  [FAIL] hidden coal was broken through the floor")
+            return 1
+        if "Coal" in inv_resp or "coal_ore" in inv_resp.lower():
+            print("  [FAIL] hidden coal entered bot inventory")
+            return 1
+        with open(log_path, "r", errors="replace") as f:
+            f.seek(hidden_offset)
+            hidden_segment = f.read()
+        if "dug through" in hidden_segment and str(hidden_coal_x) in hidden_segment:
+            print("  [FAIL] gather dug toward the hidden coal")
+            return 1
+        print("  -> hidden coal remained intact and out of inventory")
+
+        # ---- H) One-block pit escape ----
+        print("Scenario H: climb out of a one-block pit...")
+        pos = bot_pos()
+        if not pos:
+            print("  [FAIL] one-block pit: could not read bot position")
+            return 1
+        rcon.command(
+            f"summon minecraft:item {pos[0]} {pos[1]} {pos[2]} "
+            "{Item:{id:\"minecraft:dirt\",Count:32b}}")
+        time.sleep(4)
+        pit1_x = wx + 24
+        rcon.command(f"setblock {pit1_x} {PLAT_Y - 1} {wz} minecraft:smooth_stone")
+        rcon.command(f"setblock {pit1_x} {PLAT_Y} {wz} minecraft:air")
+        tp_resp = rcon.command(f"tp {nav_uuid} {pit1_x} {PLAT_Y} {wz}")
+        if "Teleported" not in tp_resp:
+            print(f"  [FAIL] one-block pit setup teleport: {tp_resp!r}")
+            return 1
+        reached, teleported, dug, pretrigger_fired, pit1_segment = goto(
+            pit1_x + 1, PLAT_Y + 1, wz, 90, y_tolerance=0)
+        if not reached:
+            print(f"  [FAIL] one-block pit escape: bot_pos={bot_pos()}, pretrigger={pretrigger_fired}")
+            return 1
+        if "ASCEND step to" not in pit1_segment:
+            print("  [FAIL] one-block pit escape had no ASCEND_STEP evidence")
+            return 1
+        if teleported:
+            print("  [FAIL] one-block pit escape used hop-teleport")
+            return 1
+        print(f"  -> escaped one-block pit to {bot_pos()}")
+
+        # ---- I) Two-by-one pit escape ----
+        print("Scenario I: climb out of a two-by-one pit...")
+        pos = bot_pos()
+        if not pos:
+            print("  [FAIL] two-by-one pit: could not read bot position")
+            return 1
+        rcon.command(
+            f"summon minecraft:item {pos[0]} {pos[1]} {pos[2]} "
+            "{Item:{id:\"minecraft:dirt\",Count:32b}}")
+        time.sleep(4)
+        pit2_x = wx + 30
+        rcon.command(f"fill {pit2_x} {PLAT_Y - 1} {wz} {pit2_x + 1} {PLAT_Y - 1} {wz} minecraft:smooth_stone")
+        rcon.command(f"fill {pit2_x} {PLAT_Y} {wz} {pit2_x + 1} {PLAT_Y} {wz} minecraft:air")
+        tp_resp = rcon.command(f"tp {nav_uuid} {pit2_x} {PLAT_Y} {wz}")
+        if "Teleported" not in tp_resp:
+            print(f"  [FAIL] two-by-one pit setup teleport: {tp_resp!r}")
+            return 1
+        reached, teleported, dug, pretrigger_fired, pit2_segment = goto(
+            pit2_x + 3, PLAT_Y + 1, wz, 120, y_tolerance=0)
+        if not reached:
+            print(f"  [FAIL] two-by-one pit escape: bot_pos={bot_pos()}, pretrigger={pretrigger_fired}")
+            return 1
+        if "ASCEND step to" not in pit2_segment:
+            print("  [FAIL] two-by-one pit escape had no ASCEND_STEP evidence")
+            return 1
+        if teleported:
+            print("  [FAIL] two-by-one pit escape used hop-teleport")
+            return 1
+        print(f"  -> escaped two-by-one pit to {bot_pos()}")
+
         # Cleanup: remove bot and blocks best-effort.
         rcon.command("vasyan remove Navigator")
         rcon.command("stop")
@@ -697,7 +796,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
             proc.terminate()
-        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through, vertical recovery).")
+        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through, vertical recovery, anti-xray).")
         return 0
     finally:
         if rcon is not None:

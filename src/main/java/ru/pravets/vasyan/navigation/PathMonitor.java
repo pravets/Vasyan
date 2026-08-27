@@ -64,6 +64,7 @@ public final class PathMonitor {
     private final int navDoneReplans;
     private final double navSpeed;
     private final VerticalRecoverySettings verticalRecovery;
+    private final boolean hopTeleportEnabled;
 
     private int stallCounter;
     /** Ticks spent waiting since the last navDone-triggered replan (pacing). */
@@ -138,6 +139,13 @@ public final class PathMonitor {
      */
     public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
                        double navSpeed, VerticalRecoverySettings verticalRecovery) {
+        this(goal, stallTicks, maxReplans, navDoneReplans, navSpeed, verticalRecovery, true);
+    }
+
+    /** Creates a monitor with fully explicit recovery capabilities. */
+    public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
+                       double navSpeed, VerticalRecoverySettings verticalRecovery,
+                       boolean hopTeleportEnabled) {
         if (goal == null) {
             throw new IllegalArgumentException("goal must not be null");
         }
@@ -162,6 +170,7 @@ public final class PathMonitor {
         this.navDoneReplans = navDoneReplans;
         this.navSpeed = navSpeed;
         this.verticalRecovery = verticalRecovery;
+        this.hopTeleportEnabled = hopTeleportEnabled;
     }
 
     /**
@@ -355,6 +364,10 @@ public final class PathMonitor {
                     return Decision.PLACE_SCAFFOLD;
                 }
             } else if (step == Step.HOP_TELEPORT) {
+                if (!hopTeleportEnabled) {
+                    finish();
+                    return Decision.GIVE_UP;
+                }
                 if (!failed && !teleported) {
                     teleported = true;
                     return Decision.HOP_TELEPORT;
@@ -376,8 +389,8 @@ public final class PathMonitor {
         int dy = anchor.getY() - botPos.getY();
         int horizontal = Math.max(Math.abs(anchor.getX() - botPos.getX()),
             Math.abs(anchor.getZ() - botPos.getZ()));
-        if (Math.abs(dy) < 2 || Math.abs(dy) > verticalRecovery.maxDistance()
-                || horizontal > verticalRecovery.horizontalRange()) {
+        if (dy == 0 || Math.abs(dy) > verticalRecovery.maxDistance()
+                || (dy < 0 && horizontal > verticalRecovery.horizontalRange())) {
             return null;
         }
         return dy < 0 ? Decision.DESCEND_STEP : Decision.ASCEND_STEP;

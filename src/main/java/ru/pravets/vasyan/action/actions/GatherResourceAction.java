@@ -313,7 +313,9 @@ public class GatherResourceAction extends BaseAction {
         boolean logTarget = anyLogMode
             || (targetBlock != null && targetBlock.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS));
 
-        List<BlockPos> nearby = VisionScanner.findNearbyBlocks(vasyan, NEARBY_SCAN_RADIUS, miningBlocks);
+        List<BlockPos> nearby = allowsNoLosNearbyScan(logTarget)
+            ? VisionScanner.findNearbyBlocks(vasyan, NEARBY_SCAN_RADIUS, miningBlocks)
+            : List.of();
         if (logTarget) {
             // lone logs of player buildings are not trees
             nearby = nearby.stream().filter(this::isTreeLog).toList();
@@ -583,8 +585,19 @@ public class GatherResourceAction extends BaseAction {
 
     /** Whether the bot can break {@code target} from its current position. */
     private boolean canMineFromHere(BlockPos target) {
-        return vasyan.distanceToSqr(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5)
-            <= MINE_REACH_SQ;
+        return canMineFrom(
+            vasyan.distanceToSqr(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5),
+            VisionScanner.hasLineOfSight(vasyan, target));
+    }
+
+    /** No-LOS discovery is a foliage workaround for logs only; ores must stay visible. */
+    static boolean allowsNoLosNearbyScan(boolean logTarget) {
+        return logTarget;
+    }
+
+    /** Reach alone is not enough: breaking a hidden block through terrain is x-ray mining. */
+    static boolean canMineFrom(double distanceSq, boolean lineOfSight) {
+        return lineOfSight && distanceSq <= MINE_REACH_SQ;
     }
 
     /** A log counts as a tree log when leaves are within 5 blocks. */

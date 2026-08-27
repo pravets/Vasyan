@@ -149,6 +149,18 @@ class PathMonitorTest {
     }
 
     @Test
+    void hopTeleportCanBeDisabled() {
+        var goal = VasyanGoal.near(TARGET, 2);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, false);
+
+        assertEquals(PathMonitor.Decision.GIVE_UP,
+            m.onTick(BOT, true, false, false, false),
+            "with dig/place unavailable and teleport disabled the route must fail honestly");
+        assertTrue(m.finished());
+    }
+
+    @Test
     void verticalGoalBelowUsesDescendStepBeforeDigging() {
         var goal = VasyanGoal.near(new BlockPos(2, 62, 2), 1);
         var settings = new VerticalRecoverySettings(true, 8, 6);
@@ -166,6 +178,28 @@ class PathMonitorTest {
 
         assertEquals(PathMonitor.Decision.ASCEND_STEP,
             m.onTick(BOT, true, false, true, true));
+    }
+
+    @Test
+    void oneBlockLedgeUsesAscendStepBeforeDigging() {
+        var goal = VasyanGoal.near(new BlockPos(2, 65, 2), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
+
+        assertEquals(PathMonitor.Decision.ASCEND_STEP,
+            m.onTick(BOT, true, false, true, true),
+            "a one-cube pit is still a vertical trap and must not fall through to teleport");
+    }
+
+    @Test
+    void distantUphillRouteUsesLocalAscendRecovery() {
+        var goal = VasyanGoal.near(new BlockPos(20, 70, 20), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
+
+        assertEquals(PathMonitor.Decision.ASCEND_STEP,
+            m.onTick(BOT, true, false, true, true),
+            "a bot trapped in a pit must climb locally even when the route target is far away");
     }
 
     @Test
