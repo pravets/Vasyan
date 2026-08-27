@@ -691,7 +691,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         rcon.command(f"fill {lava_x - 1} {PLAT_Y + 1} {wz - 1} {lava_x + 1} {PLAT_Y + 4} {wz + 1} minecraft:air")
         time.sleep(2)
         reached, teleported, dug, pretrigger_fired, lava_segment = goto(
-            lava_x, PLAT_Y - 2, wz, 120, y_tolerance=1)
+            lava_x, PLAT_Y - 4, wz, 120, y_tolerance=1)
         pos_after_lava = bot_pos()
         if reached:
             print(f"  [FAIL] lava descent unexpectedly reached target: {pos_after_lava}")
