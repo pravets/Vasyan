@@ -364,6 +364,8 @@ public final class VasyanPathing {
         }
         if (broke) {
             monitor.onRecoverySuccess();
+            // The old path is still blocked/finished; rebuild it through the corridor.
+            replan(vasyan, monitor);
         }
     }
 
@@ -395,6 +397,7 @@ public final class VasyanPathing {
         VasyanMod.LOGGER.warn("Vasyan '{}': placed scaffold {} at {}", name,
             blockItem.getBlock().getName().getString(), placePos.toShortString());
         monitor.onRecoverySuccess();
+        replan(vasyan, monitor);
     }
 
     /**
