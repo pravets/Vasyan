@@ -92,6 +92,17 @@ public class PathfindAction extends BaseAction {
             return;
         }
         if (goal.hasReached(vasyan.blockPosition())) {
+            // A position inside lava is not a legitimate arrival: the intended goal cell
+            // may lie under/inside a lava pocket, and reaching it by standing in the flow
+            // would be an unsafe descent. Refuse instead of reporting success, mirroring
+            // VasyanPathing.giveUp so the behavior test sees "giving up on near(...)".
+            if (vasyan.isInLava()) {
+                ru.pravets.vasyan.VasyanMod.LOGGER.warn(
+                    "Vasyan '{}': giving up on {}", vasyan.getVasyanName(), monitor.goal().describe());
+                vasyan.getNavigation().stop();
+                result = ActionResult.failure("Gave up: " + monitor.goal().describe());
+                return;
+            }
             result = ActionResult.success("Reached target position");
             return;
         }
