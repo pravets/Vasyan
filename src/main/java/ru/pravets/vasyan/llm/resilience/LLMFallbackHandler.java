@@ -164,11 +164,16 @@ public class LLMFallbackHandler {
             "(?i).*(mine|dig|collect|gather|добудь|накопай|собери).*"
             + "(\\d+)?\\s*(coal|уг[оа]л[ьяе]?)s?.*", Pattern.DOTALL).matcher(lowerPrompt);
         if (coal.matches()) {
+            // Take the quantity that immediately precedes the resource word
+            // (e.g. "gather 1 coal" / "добудь 3 угля"), NOT the first number
+            // anywhere in the prompt - the situation block is full of
+            // coordinates that would otherwise be mistaken for the quantity.
             int qty = 1;
-            java.util.regex.Matcher num = java.util.regex.Pattern.compile("\\d+").matcher(lowerPrompt);
-            if (num.find()) {
+            java.util.regex.Matcher coalQty = java.util.regex.Pattern.compile(
+                "(\\d+)\\s*(coal|уг[оа]л[ьяе]?)s?", Pattern.DOTALL).matcher(lowerPrompt);
+            if (coalQty.find()) {
                 try {
-                    qty = Integer.parseInt(num.group());
+                    qty = Integer.parseInt(coalQty.group(1));
                 } catch (NumberFormatException ignored) {
                     // keep default
                 }
@@ -187,10 +192,11 @@ public class LLMFallbackHandler {
             + "(дерев|wood|бр[её]вн|б[её]вен|лес|дров|log)s?.*").matcher(lowerPrompt);
         if (wood.matches()) {
             int qty = 50;
-            java.util.regex.Matcher num = java.util.regex.Pattern.compile("\\d+").matcher(lowerPrompt);
-            if (num.find()) {
+            java.util.regex.Matcher woodQty = java.util.regex.Pattern.compile(
+                "(\\d+)\\s*(дерев|wood|бр[её]вн|б[её]вен|лес|дров|log)s?").matcher(lowerPrompt);
+            if (woodQty.find()) {
                 try {
-                    qty = Integer.parseInt(num.group());
+                    qty = Integer.parseInt(woodQty.group(1));
                 } catch (NumberFormatException ignored) {
                     // keep default
                 }
