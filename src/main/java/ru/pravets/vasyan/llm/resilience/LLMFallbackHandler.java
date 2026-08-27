@@ -158,6 +158,26 @@ public class LLMFallbackHandler {
 
         String lowerPrompt = prompt.toLowerCase();
 
+        // Coal gathering keeps the exact requested resource so behavior tests and offline
+        // play do not silently turn a coal request into generic iron mining.
+        java.util.regex.Matcher coal = java.util.regex.Pattern.compile(
+            "(?i).*(mine|dig|collect|gather|добудь|накопай|собери).*"
+            + "(\\d+)?\\s*(coal|уг[оа]л[ьяе]?)s?.*").matcher(lowerPrompt);
+        if (coal.matches()) {
+            int qty = 1;
+            java.util.regex.Matcher num = java.util.regex.Pattern.compile("\\d+").matcher(lowerPrompt);
+            if (num.find()) {
+                try {
+                    qty = Integer.parseInt(num.group());
+                } catch (NumberFormatException ignored) {
+                    // keep default
+                }
+            }
+            LOGGER.info("Fallback -> gather coal x{}", qty);
+            return "{\"reasoning\":\"[Fallback] Coal gathering detected\",\"plan\":\"Gather coal\","
+                + "\"tasks\":[{\"action\":\"gather\",\"parameters\":{\"resource\":\"coal\",\"quantity\":" + qty + "}}]}";
+        }
+
         // Wood/tree gathering, RU + EN, with an optional quantity:
         // "накопай 100 дерева" / "руби берёзу" / "chop 20 wood". Falls back
         // to gather-any-log (wood) instead of the generic "follow" default.
