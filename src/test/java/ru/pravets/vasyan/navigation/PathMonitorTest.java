@@ -377,6 +377,7 @@ class PathMonitorTest {
         assertEquals(40, PathMonitor.DEFAULT_STALL_TICKS);
         assertEquals(3, PathMonitor.DEFAULT_MAX_REPLANS);
         assertEquals(10, PathMonitor.DEFAULT_NAV_DONE_REPLANS);
+        assertEquals(4, PathMonitor.DEFAULT_MAX_DIG_THROUGH);
 
         var goal = VasyanGoal.near(TARGET, 2);
         var withDefaults = new PathMonitor(goal);
@@ -387,6 +388,8 @@ class PathMonitorTest {
         assertThrows(IllegalArgumentException.class, () -> new PathMonitor(goal, 0, 3));
         assertThrows(IllegalArgumentException.class, () -> new PathMonitor(goal, 40, -1));
         assertThrows(IllegalArgumentException.class, () -> new PathMonitor(goal, 40, 3, -1));
+        assertThrows(IllegalArgumentException.class,
+            () -> new PathMonitor(goal, 40, 3, 10, 1.0, VerticalRecoverySettings.DEFAULT, true, -1));
     }
 
     @Test
@@ -437,5 +440,57 @@ class PathMonitorTest {
         assertEquals(PathMonitor.Decision.REPLAN,
             m.onTick(new BlockPos(0, 64 + (41 % 2), 0), true, false, true, true),
             "vertical-only motion must not starve the navDone replan");
+    }
+
+    // ---- dig-through budget (anti-tunneling) ----
+
+    @Test
+    void digThroughBudgetStopsHorizontalTunnelingAcrossProgressResets() {
+        // Regression for the stone-tunnel bug: dig, walk one block forward
+        // (real motion re-arms the ladder), dig again... Without a per-monitor
+        // dig budget this loop never ends. The budget caps TOTAL digs even
+        // though every dig "succeeds" and the bot keeps moving.
+        var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, false, 2);
+
+        BlockPos pos = BOT;
+        int digs = 0;
+        boolean gaveUp = false;
+        for (int guard = 0; guard < 100 && !gaveUp; guard++) {
+            PathMonitor.Decision d = m.onTick(pos, false, true, true, false);
+            if (d == PathMonitor.Decision.CONTINUE) {
+                continue;
+            }
+            if (d == PathMonitor.Decision.DIG_THROUGH) {
+                digs++;
+                m.onRecoverySuccess(); // block really broke
+                pos = pos.east();      // bot advances: the ladder re-arms on real motion
+                continue;
+            }
+            assertEquals(PathMonitor.Decision.GIVE_UP, d,
+                "dig budget spent, canPlace=false, teleport disabled: GIVE_UP is the only honest end");
+            gaveUp = true;
+        }
+        assertTrue(gaveUp, "the monitor must give up instead of tunneling forever");
+        assertEquals(2, digs, "exactly the configured dig budget may be spent");
+    }
+
+    @Test
+    void thinWallIsStillDugThroughWithinTheDefaultBudget() {
+        // Behavior scenario C contract: a 1-block wall is still dug through -
+        // the dig budget only stops TUNNELS, not the first dig of a route.
+        var m = monitor(1, 0);
+        assertEquals(PathMonitor.Decision.DIG_THROUGH, m.onTick(BOT, false, true, true, false));
+    }
+
+    @Test
+    void zeroDigBudgetSkipsDigThroughEntirely() {
+        var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, false, 0);
+
+        assertEquals(PathMonitor.Decision.GIVE_UP,
+            m.onTick(BOT, false, true, true, false),
+            "maxDigThrough=0 must skip digging and (no place/teleport) give up honestly");
+        assertTrue(m.finished());
     }
 }
