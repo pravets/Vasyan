@@ -228,6 +228,13 @@ public final class VasyanPathing {
             }
             if (planned.action() == VerticalTraversalPlanner.Action.PLACE_SUPPORT) {
                 if (!placeVerticalSupport(vasyan, monitor, planned)) {
+                    // The side step has no adjacent solid (e.g. a pit edge). Fall back to
+                    // a legal pillar-up directly under the bot, supported by the floor it
+                    // is already standing on.
+                    if (mode == VerticalTraversalPlanner.Mode.ASCEND
+                            && placeSupportAt(vasyan, monitor, botPos)) {
+                        monitor.onRecoverySuccess();
+                    }
                     return;
                 }
                 continue;
@@ -310,39 +317,42 @@ public final class VasyanPathing {
     /** Places one support block selected by vertical recovery, capped by the monitor budget. */
     private static boolean placeVerticalSupport(VasyanEntity vasyan, PathMonitor monitor,
                                              VerticalTraversalPlanner.Step planned) {
+        return placeSupportAt(vasyan, monitor, planned.target());
+    }
+
+    /** Places a support block at the given position if it is open and has a solid neighbor. */
+    private static boolean placeSupportAt(VasyanEntity vasyan, PathMonitor monitor, BlockPos target) {
         String name = vasyan.getVasyanName();
         if (!monitor.canPlaceVerticalScaffold()) {
-            VasyanMod.LOGGER.warn("Vasyan '{}': {} scaffold budget exhausted for {}",
-                name, planned.mode(), monitor.goal().describe());
+            VasyanMod.LOGGER.warn("Vasyan '{}': scaffold budget exhausted for {}",
+                name, monitor.goal().describe());
             return false;
         }
         ItemStack stack = findScaffoldStack(vasyan);
         if (stack == null) {
-            VasyanMod.LOGGER.warn("Vasyan '{}': {} failed, no scaffold block",
-                name, planned.mode());
+            VasyanMod.LOGGER.warn("Vasyan '{}': support placement failed, no scaffold block", name);
             return false;
         }
         Level level = vasyan.level();
-        if (!isOpen(level, planned.target())) {
-            VasyanMod.LOGGER.warn("Vasyan '{}': {} support spot occupied at {}",
-                name, planned.mode(), planned.target().toShortString());
+        if (!isOpen(level, target)) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': support spot occupied at {}",
+                name, target.toShortString());
             return false;
         }
-        if (!hasAdjacentSolid(level, planned.target())) {
-            VasyanMod.LOGGER.warn("Vasyan '{}': {} support has no adjacent solid block at {}",
-                name, planned.mode(), planned.target().toShortString());
+        if (!hasAdjacentSolid(level, target)) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': support has no adjacent solid block at {}",
+                name, target.toShortString());
             return false;
         }
         BlockItem blockItem = (BlockItem) stack.getItem();
-        if (!level.setBlockAndUpdate(planned.target(), blockItem.getBlock().defaultBlockState())) {
-            VasyanMod.LOGGER.warn("Vasyan '{}': {} failed to place support at {}",
-                name, planned.mode(), planned.target().toShortString());
+        if (!level.setBlockAndUpdate(target, blockItem.getBlock().defaultBlockState())) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': failed to place support at {}",
+                name, target.toShortString());
             return false;
         }
         stack.shrink(1);
-        VasyanMod.LOGGER.warn("Vasyan '{}': {} placed support {} at {}",
-            name, planned.mode(), blockItem.getBlock().getName().getString(),
-            planned.target().toShortString());
+        VasyanMod.LOGGER.warn("Vasyan '{}': placed support {} at {}",
+            name, blockItem.getBlock().getName().getString(), target.toShortString());
         monitor.recordVerticalScaffoldPlacement();
         return true;
     }
