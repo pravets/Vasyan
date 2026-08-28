@@ -326,9 +326,14 @@ public class GatherResourceAction extends BaseAction {
         boolean logTarget = anyLogMode
             || (targetBlock != null && targetBlock.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS));
 
+        // Logs: brute-force no-LOS scan (canopies hide trunks). Ores: the same
+        // nearby cube scan, but filtered to EXPOSED blocks with a standable
+        // approach cell - anti-xray stays intact (buried ore is never
+        // returned), while an exposed coal face just around a terrain lip is
+        // found even though the eye ray from the bot clips the ground.
         List<BlockPos> nearby = allowsNoLosNearbyScan(logTarget)
             ? VisionScanner.findNearbyBlocks(vasyan, NEARBY_SCAN_RADIUS, miningBlocks)
-            : List.of();
+            : VisionScanner.findNearbyExposedBlocks(vasyan, NEARBY_SCAN_RADIUS, miningBlocks);
         if (logTarget) {
             // lone logs of player buildings are not trees
             nearby = nearby.stream().filter(this::isTreeLog).toList();
@@ -349,7 +354,8 @@ public class GatherResourceAction extends BaseAction {
             .orElse(null);
         if (mine != null) {
             if (!visible.contains(mine)) {
-                debugLog("SEARCH", "nearby target at " + mine + " (behind foliage)");
+                debugLog("SEARCH", "nearby target at " + mine
+                    + (logTarget ? " (behind foliage)" : " (exposed face around the corner)"));
             }
             mineTarget = mine;
             routeTarget = mine;
@@ -650,7 +656,9 @@ public class GatherResourceAction extends BaseAction {
             VisionScanner.hasLineOfSight(vasyan, target));
     }
 
-    /** No-LOS discovery is a foliage workaround for logs only; ores must stay visible. */
+    /** Raw no-LOS discovery is a foliage workaround for logs only; ores use the
+     *  exposed-face nearby scan ({@link VisionScanner#findNearbyExposedBlocks})
+     *  instead, so buried ore stays invisible (anti-xray). */
     static boolean allowsNoLosNearbyScan(boolean logTarget) {
         return logTarget;
     }
