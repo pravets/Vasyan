@@ -206,6 +206,9 @@ public final class PathMonitor {
         boolean horizontallyMoved = lastStallPos != null
             && (botPos.getX() != lastStallPos.getX() || botPos.getZ() != lastStallPos.getZ());
         lastStallPos = botPos;
+        if (navDone && !hasPath) {
+            return handleNavDoneOutsideGoal(canDig, canPlace, botPos);
+        }
         if (horizontallyMoved) {
             // Vertical staircase steps always move to a horizontal neighbour.
             // This reset is therefore the contract that re-arms DESCEND/ASCEND
@@ -214,9 +217,6 @@ public final class PathMonitor {
             step = Step.LADDER_ENTRY;
             resetWindow();
             return Decision.CONTINUE;
-        }
-        if (navDone && !hasPath) {
-            return handleNavDoneOutsideGoal(canDig, canPlace, botPos);
         }
         if (++stallCounter < stallTicks) {
             return Decision.CONTINUE;

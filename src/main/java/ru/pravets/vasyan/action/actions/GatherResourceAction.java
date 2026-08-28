@@ -23,8 +23,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.List;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -1124,7 +1125,16 @@ public class GatherResourceAction extends BaseAction {
 
     /** Whether {@code pos} belongs to a recently failed vertical pocket. */
     private boolean isInVerticalTrap(BlockPos pos) {
-        for (BlockPos center : verticalTrapCenters) {
+        BlockPos botPos = vasyan.blockPosition();
+        Iterator<BlockPos> it = verticalTrapCenters.iterator();
+        while (it.hasNext()) {
+            BlockPos center = it.next();
+            int botHorizontal = Math.max(Math.abs(botPos.getX() - center.getX()),
+                Math.abs(botPos.getZ() - center.getZ()));
+            if (botHorizontal > 32) {
+                it.remove(); // stale trap far behind the bot
+                continue;
+            }
             int horizontal = Math.max(Math.abs(pos.getX() - center.getX()),
                 Math.abs(pos.getZ() - center.getZ()));
             int vertical = Math.abs(pos.getY() - center.getY());
