@@ -4,6 +4,7 @@ import ru.pravets.vasyan.testutil.AbstractMinecraftTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -19,13 +20,18 @@ import static org.mockito.Mockito.when;
  */
 class VisionScannerTest extends AbstractMinecraftTest {
 
-    private static Level levelWithNeighbors(BlockPos target, BlockPos... exposedNeighbors) {
+    private static Level levelWithNeighbors(BlockPos... exposedNeighbors) {
         Level level = mock(Level.class);
-        when(level.getBlockState(any())).thenReturn(Blocks.STONE.defaultBlockState());
+        BlockState stone = mock(BlockState.class);
+        when(stone.isSolid()).thenReturn(true);
+        when(stone.getBlock()).thenReturn(Blocks.STONE);
+        when(level.getBlockState(any())).thenReturn(stone);
         for (BlockPos neighbor : exposedNeighbors) {
-            when(level.getBlockState(neighbor)).thenReturn(Blocks.AIR.defaultBlockState());
+            BlockState air = mock(BlockState.class);
+            when(air.isSolid()).thenReturn(false);
+            when(air.getBlock()).thenReturn(Blocks.AIR);
+            when(level.getBlockState(neighbor)).thenReturn(air);
         }
-        // target itself stays stone by default so non-logs are treated as surrounded
         return level;
     }
 
@@ -49,8 +55,14 @@ class VisionScannerTest extends AbstractMinecraftTest {
     void oreNextToLeavesIsExposedForMining() {
         BlockPos ore = new BlockPos(0, 64, 0);
         Level level = mock(Level.class);
-        when(level.getBlockState(any())).thenReturn(Blocks.STONE.defaultBlockState());
-        when(level.getBlockState(ore.above())).thenReturn(Blocks.OAK_LEAVES.defaultBlockState());
+        BlockState stone = mock(BlockState.class);
+        when(stone.isSolid()).thenReturn(true);
+        when(stone.getBlock()).thenReturn(Blocks.STONE);
+        when(level.getBlockState(any())).thenReturn(stone);
+        BlockState leaves = mock(BlockState.class);
+        when(leaves.isSolid()).thenReturn(true);
+        when(leaves.getBlock()).thenReturn(Blocks.OAK_LEAVES);
+        when(level.getBlockState(ore.above())).thenReturn(leaves);
         assertTrue(VisionScanner.isExposedForMining(level, ore, Blocks.COAL_ORE),
             "leaves are transparent, so an ore touching leaves is visible");
     }
@@ -59,7 +71,10 @@ class VisionScannerTest extends AbstractMinecraftTest {
     void logsDoNotRequireExposedFace() {
         BlockPos log = new BlockPos(0, 64, 0);
         Level level = mock(Level.class);
-        when(level.getBlockState(any())).thenReturn(Blocks.STONE.defaultBlockState());
+        BlockState stone = mock(BlockState.class);
+        when(stone.isSolid()).thenReturn(true);
+        when(stone.getBlock()).thenReturn(Blocks.STONE);
+        when(level.getBlockState(any())).thenReturn(stone);
         assertTrue(VisionScanner.isExposedForMining(level, log, Blocks.OAK_LOG),
             "logs must be discoverable even when surrounded by leaves/stone");
     }
