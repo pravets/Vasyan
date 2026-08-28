@@ -56,6 +56,16 @@ class PathMonitorTest {
     }
 
     @Test
+    void navDoneOutsideGoalStillConsumesReplansEvenAfterHorizontalMotion() {
+        var m = monitor(40, 3);
+        BlockPos moved = BOT.east();
+
+        // Bot moved horizontally but navigation finished off-goal.
+        PathMonitor.Decision d = m.onTick(moved, true, false, true, true);
+        assertEquals(PathMonitor.Decision.REPLAN, d,
+            "navDone outside goal must consume a navDone replan, not be masked by horizontal motion");
+    }
+
     void fortyStalledTicksProduceReplanThenAFreshWindow() {
         var m = monitor(40, 3);
 
