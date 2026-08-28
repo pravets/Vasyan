@@ -73,23 +73,23 @@ public final class VerticalTraversalPlanner {
      */
     public static Optional<Step> nextStep(BlockPos botPos, BlockPos goal, Mode mode, WorldView world) {
         int stepY = botPos.getY() + (mode == Mode.DESCEND ? -1 : 1);
-        Optional<Step> horizontal = HORIZONTAL.stream()
+        // For ascending, pillar-up directly under the bot is preferred: it is
+        // always supported by the floor already under the bot and cannot be dug
+        // away as a side scaffold can. Only if the bot's own column is blocked
+        // do we try a side staircase.
+        if (mode == Mode.ASCEND) {
+            Step own = prepare(botPos, goal, mode, world, botPos.above());
+            if (own != null) {
+                return Optional.of(own);
+            }
+        }
+        return HORIZONTAL.stream()
             .map(direction -> new BlockPos(
                 botPos.getX() + direction.getStepX(), stepY, botPos.getZ() + direction.getStepZ()))
             .sorted(Comparator.comparingInt(candidate -> horizontalDistanceSqr(candidate, goal)))
             .map(candidate -> prepare(botPos, goal, mode, world, candidate))
             .filter(step -> step != null)
             .findFirst();
-        if (horizontal.isPresent()) {
-            return horizontal;
-        }
-        // If no side step works, allow pillar-up directly under the bot for ASCEND.
-        // The support block sits on the floor the bot is already standing on, so it
-        // is not a floating scaffold.
-        if (mode == Mode.ASCEND) {
-            return Optional.ofNullable(prepare(botPos, goal, mode, world, botPos.above()));
-        }
-        return Optional.empty();
     }
 
     @Nullable
