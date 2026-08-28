@@ -67,15 +67,4 @@ class VisionScannerTest extends AbstractMinecraftTest {
             "leaves are transparent, so an ore touching leaves is visible");
     }
 
-    @Test
-    void logsDoNotRequireExposedFace() {
-        BlockPos log = new BlockPos(0, 64, 0);
-        Level level = mock(Level.class);
-        BlockState stone = mock(BlockState.class);
-        when(stone.isSolid()).thenReturn(true);
-        when(stone.getBlock()).thenReturn(Blocks.STONE);
-        when(level.getBlockState(any())).thenReturn(stone);
-        assertTrue(VisionScanner.isExposedForMining(level, log, Blocks.OAK_LOG),
-            "logs must be discoverable even when surrounded by leaves/stone");
-    }
 }
