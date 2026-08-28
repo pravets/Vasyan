@@ -109,8 +109,7 @@ class VerticalTraversalPlannerTest {
     }
 
     @Test
-    void ascendStepPlacesAStairSupportBesideTheBot() {
-        BlockPos candidate = new BlockPos(11, 71, 10);
+    void ascendStepPlacesAPillarUnderTheBot() {
         var world = world(Set.of(), Set.of(), Set.of());
 
         Optional<VerticalTraversalPlanner.Step> step = VerticalTraversalPlanner.nextStep(
@@ -118,6 +117,21 @@ class VerticalTraversalPlannerTest {
 
         assertTrue(step.isPresent());
         assertEquals(VerticalTraversalPlanner.Action.PLACE_SUPPORT, step.get().action());
-        assertEquals(candidate.below(), step.get().target());
+        assertEquals(BOT, step.get().target());
+        assertEquals(BOT.above(), step.get().standPos());
+    }
+
+    @Test
+    void ascendFallsBackToSideSupportWhenOwnColumnIsBlocked() {
+        BlockPos sideTarget = new BlockPos(11, 70, 10);
+        // Bot's own column is blocked by an unbreakable support.
+        var world = world(Set.of(), Set.of(), Set.of(BOT));
+
+        Optional<VerticalTraversalPlanner.Step> step = VerticalTraversalPlanner.nextStep(
+            BOT, new BlockPos(14, 74, 10), VerticalTraversalPlanner.Mode.ASCEND, world);
+
+        assertTrue(step.isPresent());
+        assertEquals(VerticalTraversalPlanner.Action.PLACE_SUPPORT, step.get().action());
+        assertEquals(sideTarget, step.get().target());
     }
 }
