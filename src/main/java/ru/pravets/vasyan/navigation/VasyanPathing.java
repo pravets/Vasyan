@@ -1,6 +1,7 @@
 package ru.pravets.vasyan.navigation;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.item.BlockItem;
@@ -277,6 +278,16 @@ public final class VasyanPathing {
         return true;
     }
 
+    /** A placed block must touch at least one solid neighbor (no floating scaffolds). */
+    private static boolean hasAdjacentSolid(Level level, BlockPos pos) {
+        for (Direction dir : Direction.values()) {
+            if (level.getBlockState(pos.relative(dir)).isSolid()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Places one support block selected by vertical recovery, capped by the monitor budget. */
     private static boolean placeVerticalSupport(VasyanEntity vasyan, PathMonitor monitor,
                                              VerticalTraversalPlanner.Step planned) {
@@ -295,6 +306,11 @@ public final class VasyanPathing {
         Level level = vasyan.level();
         if (!isOpen(level, planned.target())) {
             VasyanMod.LOGGER.warn("Vasyan '{}': {} support spot occupied at {}",
+                name, planned.mode(), planned.target().toShortString());
+            return false;
+        }
+        if (!hasAdjacentSolid(level, planned.target())) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': {} support has no adjacent solid block at {}",
                 name, planned.mode(), planned.target().toShortString());
             return false;
         }
@@ -387,6 +403,11 @@ public final class VasyanPathing {
             return;
         }
         Level level = vasyan.level();
+        if (!hasAdjacentSolid(level, placePos)) {
+            VasyanMod.LOGGER.warn("Vasyan '{}': PLACE_SCAFFOLD skipped, no adjacent solid block at {}",
+                name, placePos.toShortString());
+            return;
+        }
         BlockItem blockItem = (BlockItem) stack.getItem();
         if (!level.setBlockAndUpdate(placePos, blockItem.getBlock().defaultBlockState())) {
             VasyanMod.LOGGER.warn("Vasyan '{}': failed to place scaffold at {}",

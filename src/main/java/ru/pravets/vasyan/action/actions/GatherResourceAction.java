@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 /**
@@ -111,6 +112,8 @@ public class GatherResourceAction extends BaseAction {
     private final Set<BlockPos> unreachableTargets = new HashSet<>();
     /** Centers of failed vertical pockets; nearby targets in the same pit are skipped too. */
     private final List<BlockPos> verticalTrapCenters = new ArrayList<>();
+    /** Adjacent blocks of the same resource discovered by mining a vein. */
+    private final Set<BlockPos> veinTargets = new LinkedHashSet<>();
 
     // Fell mode state
     private boolean fellMode;
@@ -173,6 +176,7 @@ public class GatherResourceAction extends BaseAction {
         fellPillar.clear();
         unreachableTargets.clear();
         verticalTrapCenters.clear();
+        veinTargets.clear();
         origin = vasyan.blockPosition();
         searchState = new ResourceSearchPlanner.SearchState(origin, 0, 0, vasyan.level().getGameTime());
 
@@ -349,6 +353,25 @@ public class GatherResourceAction extends BaseAction {
             }
         }
         unreachableTargets.retainAll(all); // keep the set small
+
+        // Vein following takes priority over a fresh world scan: after mining a block
+        // the bot looks at exposed neighbors and keeps digging the same vein instead
+        // of walking away.
+        if (!fellMode) {
+            veinTargets.removeIf(p -> !isTargetBlockAt(p) || unreachableTargets.contains(p)
+                || isInVerticalTrap(p));
+            BlockPos nextVein = veinTargets.stream()
+                .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(
+                    p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)))
+                .orElse(null);
+            if (nextVein != null) {
+                debugLog("SEARCH", "continue vein at " + nextVein);
+                mineTarget = nextVein;
+                routeTarget = nextVein;
+                phase = Phase.ROUTING;
+                return;
+            }
+        }
 
         // No target anywhere: advance the route
         if (!ResourceSearchPlanner.hasNext(searchState, VasyanConfig.GATHER_SEARCH_RADIUS.get(),
@@ -556,6 +579,10 @@ public class GatherResourceAction extends BaseAction {
         debugLog("MINE", resourceLabel() + " at " + mined
             + " (" + gatheredCount + "/" + targetQuantity + ")");
 
+        if (!fellMode) {
+            veinTargets.addAll(collectVeinTargets(mined));
+        }
+
         // Enter whole-tree felling: a log above the mined one means a tree
         // trunk - but only when leaves are nearby (player structures must
         // never be felled, even if built from logs)
@@ -723,6 +750,25 @@ public class GatherResourceAction extends BaseAction {
 
     private boolean isTargetLog(BlockPos pos) {
         return vasyan.level().getBlockState(pos).getBlock() == fellLogBlock;
+    }
+
+    /** Collects adjacent blocks of the current target around a freshly mined block. */
+    private List<BlockPos> collectVeinTargets(BlockPos mined) {
+        List<BlockPos> found = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dy == 0 && dz == 0) {
+                        continue;
+                    }
+                    BlockPos p = mined.offset(dx, dy, dz);
+                    if (isTargetBlockAt(p)) {
+                        found.add(p);
+                    }
+                }
+            }
+        }
+        return found;
     }
 
     private void phaseFellAscend() {
