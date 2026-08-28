@@ -262,15 +262,14 @@ public class ProviderChainClient implements AsyncLLMClient {
             // {@link LLMFallbackHandler} does.
             LLMResponse fallback = lastFallbackResponse[0];
             if (fallback == null) {
-                fallback = LLMResponse.builder()
-                    .content(LLMFallbackHandler.DEFAULT_FALLBACK_RESPONSE)
-                    .model("fallback-pattern-matcher")
-                    .providerId(FALLBACK_PROVIDER_ID)
-                    .latencyMs(0)
-                    .tokensUsed(0)
-                    .fromCache(false)
-                    .failureReason("all providers in the failover chain are unavailable")
-                    .build();
+                // No member was even attempted (all breakers OPEN / cooling
+                // down): synthesizing the blind DEFAULT here turns EVERY
+                // command into "follow the player" - the prompt is never
+                // pattern-matched (scenario J regression: a "gather 1 coal"
+                // issued while ollama's breaker was still OPEN became
+                // "Stay near the player"). Run the same pattern matcher the
+                // member resilience layer would have run.
+                fallback = new LLMFallbackHandler().generateFallback(prompt, null);
             }
             return fallback;
         });
