@@ -208,6 +208,49 @@ public final class VisionScanner {
     }
 
     /**
+     * No-LOS nearby scan for ORES that keeps anti-xray honest: a block is
+     * returned only when it is exposed ({@link #isExposedForMining}) AND has a
+     * standable approach cell next to it ({@link #hasStandableApproach}). This
+     * finds the exposed coal face "just around the corner" that the eye ray
+     * misses against a terrain lip, while buried ore - or ore reachable only
+     * through solid ground - stays invisible.
+     */
+    public static List<BlockPos> findNearbyExposedBlocks(VasyanEntity vasyan, int radius,
+                                                         Set<Block> targets) {
+        Level level = vasyan.level();
+        return findNearbyBlocks(vasyan, radius, targets).stream()
+            .filter(p -> isExposedForMining(level, p, level.getBlockState(p).getBlock()))
+            .filter(p -> hasStandableApproach(level, p))
+            .toList();
+    }
+
+    /**
+     * Whether the bot can physically reach an exposed face of {@code pos}:
+     * some adjacent cell is passable (air/leaves) with passable headroom, so
+     * the bot can stand there and gets a trivial line of sight to the block.
+     * Standing on top of the block counts (UP approach); the DOWN approach
+     * rejects itself because its headroom cell is the block itself.
+     */
+    static boolean hasStandableApproach(Level level, BlockPos pos) {
+        for (Direction dir : Direction.values()) {
+            BlockPos approach = pos.relative(dir);
+            if (!isPassableForVision(level.getBlockState(approach))) {
+                continue;
+            }
+            if (!isPassableForVision(level.getBlockState(approach.above()))) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /** Leaves are transparent/passable for vision purposes, everything solid is not. */
+    private static boolean isPassableForVision(BlockState state) {
+        return !state.isSolid() || state.getBlock() instanceof LeavesBlock;
+    }
+
+    /**
      * Finds the nearest visible block of the given type, or null.
      */
     public static BlockPos findNearestVisible(VasyanEntity vasyan, Block target) {
