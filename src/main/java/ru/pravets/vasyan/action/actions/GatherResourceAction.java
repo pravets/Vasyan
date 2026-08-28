@@ -345,6 +345,15 @@ public class GatherResourceAction extends BaseAction {
         long nowMem = vasyan.level().getGameTime();
         int memoryRadius = VasyanConfig.GATHER_MEMORY_RADIUS.get();
         BlockPos center = vasyan.blockPosition();
+        // TEMP CI DEBUG (scenario J): which filter rejects each candidate.
+        for (BlockPos p : all) {
+            org.slf4j.LoggerFactory.getLogger("VasyanMod").info(
+                "Vasyan '{}': SEARCH cand={} unr={} trap={} mem={} water={}",
+                vasyan.getVasyanName(), p,
+                unreachableTargets.contains(p), isInVerticalTrap(p),
+                GlobalResourceMemory.isUnreachable(memoryKey, p, nowMem, memoryRadius),
+                isUnderwaterTarget(p));
+        }
         BlockPos mine = all.stream()
             .filter(p -> !unreachableTargets.contains(p))
             .filter(p -> !isInVerticalTrap(p))
