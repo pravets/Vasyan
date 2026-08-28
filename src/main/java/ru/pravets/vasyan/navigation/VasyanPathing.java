@@ -121,7 +121,8 @@ public final class VasyanPathing {
             VasyanConfig.NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS.get());
         return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS,
             PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed, verticalRecovery,
-            VasyanConfig.NAV_HOP_TELEPORT_ENABLED.get());
+            VasyanConfig.NAV_HOP_TELEPORT_ENABLED.get(),
+            VasyanConfig.NAV_DIG_THROUGH_MAX.get());
     }
 
     /**
