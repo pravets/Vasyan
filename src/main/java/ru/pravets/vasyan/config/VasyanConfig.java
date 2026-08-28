@@ -121,6 +121,8 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_SEARCH_TIMEOUT;
     public static final ForgeConfigSpec.IntValue GATHER_RING_SPACING;
     public static final ForgeConfigSpec.IntValue GATHER_STATIONS_PER_RING;
+    public static final ForgeConfigSpec.IntValue GATHER_MEMORY_TTL_TICKS;
+    public static final ForgeConfigSpec.IntValue GATHER_MEMORY_RADIUS;
     public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
@@ -264,6 +266,14 @@ public class VasyanConfig {
         GATHER_STATIONS_PER_RING = builder
             .comment("Look-out stations per ring")
             .defineInRange("stationsPerRing", 8, 4, 16);
+
+        GATHER_MEMORY_TTL_TICKS = builder
+            .comment("How many ticks empty/unreachable zones are remembered per resource")
+            .defineInRange("memoryTtlTicks", 24000, 6000, 720000);
+
+        GATHER_MEMORY_RADIUS = builder
+            .comment("Radius in which a remembered empty zone blocks a new station")
+            .defineInRange("memoryRadius", 8, 2, 32);
 
         builder.pop();
 

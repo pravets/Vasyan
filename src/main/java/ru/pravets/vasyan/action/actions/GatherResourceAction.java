@@ -4,6 +4,7 @@ import ru.pravets.vasyan.action.ActionResult;
 import ru.pravets.vasyan.action.Task;
 import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
+import ru.pravets.vasyan.memory.GlobalResourceMemory;
 import ru.pravets.vasyan.memory.VisionScanner;
 import ru.pravets.vasyan.navigation.PathBudgets;
 import ru.pravets.vasyan.navigation.PathMonitor;
@@ -95,6 +96,7 @@ public class GatherResourceAction extends BaseAction {
     private BlockPos routeTarget;
     private BlockPos mineTarget;
     private int ticksOnMine;
+    private String memoryKey;
     /**
      * Monitor-driven routing state (Task 4 machinery): the goal is recreated per
      * route target, and both are reset whenever the route target changes - the
@@ -160,6 +162,9 @@ public class GatherResourceAction extends BaseAction {
         miningBlocks = anyLogMode ? null : resourceYield.miningBlocks();
         logTarget = anyLogMode || (targetBlock != null
             && targetBlock.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS));
+        memoryKey = anyLogMode ? "wood" : blockName;
+        long now = vasyan.level().getGameTime();
+        GlobalResourceMemory.prune(now, VasyanConfig.GATHER_MEMORY_TTL_TICKS.get());
 
         gatheredCount = 0;
         // Quota counts what actually reaches the inventory (pickup fact),
@@ -331,10 +336,13 @@ public class GatherResourceAction extends BaseAction {
         List<BlockPos> all = new java.util.ArrayList<>(visible.size() + nearby.size());
         all.addAll(visible);
         all.addAll(nearby);
+        long nowMem = vasyan.level().getGameTime();
+        int memoryRadius = VasyanConfig.GATHER_MEMORY_RADIUS.get();
         BlockPos center = vasyan.blockPosition();
         BlockPos mine = all.stream()
             .filter(p -> !unreachableTargets.contains(p))
             .filter(p -> !isInVerticalTrap(p))
+            .filter(p -> !GlobalResourceMemory.isUnreachable(memoryKey, p, nowMem, memoryRadius))
             .filter(p -> !isUnderwaterTarget(p)) // swamp: never dive for a log (drop loss, air)
             .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)))
             .orElse(null);
@@ -384,6 +392,9 @@ public class GatherResourceAction extends BaseAction {
             // giving up ("Nothing found") or standing still forever.
             expandDir++;
             BlockPos station = expandStation();
+            if (!GlobalResourceMemory.isEmptyStation(memoryKey, station, nowMem, memoryRadius)) {
+                GlobalResourceMemory.rememberEmptyStation(memoryKey, station, nowMem);
+            }
             debugLog("SEARCH", "no targets locally, expanding outward to " + station);
             routeTarget = station;
             phase = Phase.ROUTING;
@@ -392,8 +403,16 @@ public class GatherResourceAction extends BaseAction {
 
         BlockPos station = ResourceSearchPlanner.stationFor(searchState,
             VasyanConfig.GATHER_RING_SPACING.get(), VasyanConfig.GATHER_STATIONS_PER_RING.get());
+        while (ResourceSearchPlanner.hasNext(searchState, VasyanConfig.GATHER_SEARCH_RADIUS.get(),
+                VasyanConfig.GATHER_RING_SPACING.get())
+            && GlobalResourceMemory.isEmptyStation(memoryKey, station, nowMem, memoryRadius)) {
+            searchState = ResourceSearchPlanner.next(searchState, VasyanConfig.GATHER_STATIONS_PER_RING.get());
+            station = ResourceSearchPlanner.stationFor(searchState,
+                VasyanConfig.GATHER_RING_SPACING.get(), VasyanConfig.GATHER_STATIONS_PER_RING.get());
+        }
         searchState = ResourceSearchPlanner.next(searchState, VasyanConfig.GATHER_STATIONS_PER_RING.get());
         debugLog("SEARCH", "no target visible, next station " + station);
+        GlobalResourceMemory.rememberEmptyStation(memoryKey, station, nowMem);
 
         routeTarget = station;
         phase = Phase.ROUTING;
@@ -486,6 +505,7 @@ public class GatherResourceAction extends BaseAction {
         vasyan.getNavigation().stop();
         if (mineTarget != null && routeTarget.equals(mineTarget)) {
             rememberUnreachable(mineTarget);
+            GlobalResourceMemory.rememberUnreachable(memoryKey, mineTarget, vasyan.level().getGameTime());
             rememberVerticalTrap(mineTarget);
             debugLog("ROUTING", "target unreachable, skipping " + mineTarget);
             mineTarget = null;
