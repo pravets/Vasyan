@@ -133,6 +133,16 @@ public final class VasyanPathing {
      * @param monitor monitor previously created by {@link #moveTo} for this attempt
      */
     public static void enforce(VasyanEntity vasyan, PathMonitor monitor) {
+        enforce(vasyan, monitor, true);
+    }
+
+    /**
+     * Enforces the monitor decision. When {@code allowRecovery} is false, the bot will
+     * not dig, place scaffold, step vertically or teleport for this route: if the goal
+     * is not reachable by plain walking, it gives up. This is used for resource gathering
+     * routes, where chasing an ore must never turn into tunneling.
+     */
+    public static void enforce(VasyanEntity vasyan, PathMonitor monitor, boolean allowRecovery) {
         Objects.requireNonNull(vasyan, "vasyan");
         Objects.requireNonNull(monitor, "monitor");
         if (vasyan.level().isClientSide()) {
@@ -141,9 +151,9 @@ public final class VasyanPathing {
 
         PathNavigation nav = vasyan.getNavigation();
         boolean navDone = nav.isDone();
-        BlockPos diggable = findDiggableAhead(vasyan, monitor.goal());
-        boolean canDig = diggable != null;
-        boolean canPlace = findScaffoldStack(vasyan) != null;
+        BlockPos diggable = allowRecovery ? findDiggableAhead(vasyan, monitor.goal()) : null;
+        boolean canDig = allowRecovery && diggable != null;
+        boolean canPlace = allowRecovery && findScaffoldStack(vasyan) != null;
 
         // Temporary diagnostics for behavior scenario C (wall dig-through).
         if (vasyan.tickCount % 40 == 0) {
@@ -161,11 +171,20 @@ public final class VasyanPathing {
                 // steady progress or goal reached: nothing to do
             }
             case REPLAN -> replan(vasyan, monitor);
-            case DESCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
-            case ASCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND);
-            case DIG_THROUGH -> digThrough(vasyan, monitor, diggable);
-            case PLACE_SCAFFOLD -> placeScaffold(vasyan, monitor);
-            case HOP_TELEPORT -> hopTeleport(vasyan, monitor);
+            case DESCEND_STEP, ASCEND_STEP, DIG_THROUGH, PLACE_SCAFFOLD, HOP_TELEPORT -> {
+                if (allowRecovery) {
+                    switch (decision) {
+                        case DESCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
+                        case ASCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND);
+                        case DIG_THROUGH -> digThrough(vasyan, monitor, diggable);
+                        case PLACE_SCAFFOLD -> placeScaffold(vasyan, monitor);
+                        case HOP_TELEPORT -> hopTeleport(vasyan, monitor);
+                        default -> {}
+                    }
+                } else {
+                    giveUp(vasyan, monitor);
+                }
+            }
             case GIVE_UP -> giveUp(vasyan, monitor);
         }
     }

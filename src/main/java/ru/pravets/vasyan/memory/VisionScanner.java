@@ -334,7 +334,7 @@ public final class VisionScanner {
     /** Solid blocks that are not ores/logs require an exposed face to be visible.
      *  This prevents x-raying a coal vein through one pixel of air, while leaves
      *  stay transparent and logs hidden behind canopies still count. */
-    static boolean isExposedForMining(Level level, BlockPos pos, Block block) {
+    public static boolean isExposedForMining(Level level, BlockPos pos, Block block) {
         if (block.builtInRegistryHolder().is(BlockTags.LOGS)) {
             return true; // whole-tree felling needs logs even when fully surrounded
         }

@@ -82,6 +82,7 @@ public class GatherResourceAction extends BaseAction {
     private int gatheredCount;
     private boolean fillMode;
     private boolean anyLogMode;
+    private boolean logTarget;
     /** Resource count in the inventory at action start - quota is a delta over this. */
     private int startResourceCount;
     private int lastProgressCount;
@@ -157,6 +158,8 @@ public class GatherResourceAction extends BaseAction {
         targetBlock = anyLogMode ? null : ResourceBlocks.parseBlock(blockName);
         resourceBlock = targetBlock;
         miningBlocks = anyLogMode ? null : resourceYield.miningBlocks();
+        logTarget = anyLogMode || (targetBlock != null
+            && targetBlock.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS));
 
         gatheredCount = 0;
         // Quota counts what actually reaches the inventory (pickup fact),
@@ -469,7 +472,8 @@ public class GatherResourceAction extends BaseAction {
         }
 
         routeBudgets = routeBudgets.nextTick(nowNano);
-        VasyanPathing.enforce(vasyan, routeMonitor);
+        boolean allowRecovery = !(routeTarget.equals(mineTarget) && !logTarget);
+        VasyanPathing.enforce(vasyan, routeMonitor, allowRecovery);
     }
 
     /**
@@ -762,7 +766,8 @@ public class GatherResourceAction extends BaseAction {
                         continue;
                     }
                     BlockPos p = mined.offset(dx, dy, dz);
-                    if (isLogBlockAt(p)) {
+                    if (isLogBlockAt(p) && VisionScanner.isExposedForMining(vasyan.level(), p,
+                            vasyan.level().getBlockState(p).getBlock())) {
                         found.add(p);
                     }
                 }
