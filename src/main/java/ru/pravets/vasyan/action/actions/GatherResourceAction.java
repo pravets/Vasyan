@@ -523,7 +523,9 @@ public class GatherResourceAction extends BaseAction {
             }
         } else {
             debugLog("ROUTING", "station unreachable, next station");
+            GlobalResourceMemory.rememberEmptyStation(memoryKey, routeTarget, vasyan.level().getGameTime());
         }
+        veinTargets.clear();
         phase = Phase.SEARCH; // next station / other candidate
     }
 
@@ -564,6 +566,7 @@ public class GatherResourceAction extends BaseAction {
                 ticksOnMine = 0;
                 vasyan.getNavigation().stop();
                 rememberUnreachable(mineTarget);
+                GlobalResourceMemory.rememberUnreachable(memoryKey, mineTarget, vasyan.level().getGameTime());
                 rememberVerticalTrap(mineTarget);
                 if (fellMode && !fellGatheringMaterial) {
                     // Unreachable cleanup branch: drop it from the CURRENT
