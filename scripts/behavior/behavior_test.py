@@ -95,9 +95,10 @@ class RCON:
         """Read exactly n bytes from the socket (kept for compatibility)."""
         data = b""
         while len(data) < n:
-            data += self.sock.recv(n - len(data))
-            if not data:
+            chunk = self.sock.recv(n - len(data))
+            if not chunk:
                 raise ConnectionError("RCON connection closed")
+            data += chunk
         return data
 
     def _auth(self, password):

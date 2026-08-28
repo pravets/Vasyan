@@ -106,11 +106,17 @@ class VisionScannerTest extends AbstractMinecraftTest {
         // reaches the block center. The exposed-face nearby scan finds it.
         BlockPos center = new BlockPos(0, 64, 0);
         BlockPos ore = new BlockPos(4, 64, 0);
+        // Mockito forbids creating/stubbing mocks inside thenReturn(...)
+        // (UnfinishedStubbingException) - precompute the states first.
+        BlockState stone = solid(Blocks.STONE);
+        BlockState coal = solid(Blocks.COAL_ORE);
+        BlockState airFace = open();
+        BlockState airHeadroom = open();
         Level level = mock(Level.class);
-        when(level.getBlockState(any())).thenReturn(solid(Blocks.STONE));
-        when(level.getBlockState(ore)).thenReturn(solid(Blocks.COAL_ORE));
-        when(level.getBlockState(ore.east())).thenReturn(open());
-        when(level.getBlockState(ore.east().above())).thenReturn(open());
+        when(level.getBlockState(any())).thenReturn(stone);
+        when(level.getBlockState(ore)).thenReturn(coal);
+        when(level.getBlockState(ore.east())).thenReturn(airFace);
+        when(level.getBlockState(ore.east().above())).thenReturn(airHeadroom);
 
         List<BlockPos> found = VisionScanner.findNearbyExposedBlocks(
             vasyanAt(level, center), 5, Set.of(Blocks.COAL_ORE));
@@ -122,9 +128,11 @@ class VisionScannerTest extends AbstractMinecraftTest {
     void nearbyExposedScanIgnoresFullyBuriedOre() {
         BlockPos center = new BlockPos(0, 64, 0);
         BlockPos ore = new BlockPos(3, 64, 0);
+        BlockState stone = solid(Blocks.STONE);
+        BlockState coal = solid(Blocks.COAL_ORE);
         Level level = mock(Level.class);
-        when(level.getBlockState(any())).thenReturn(solid(Blocks.STONE));
-        when(level.getBlockState(ore)).thenReturn(solid(Blocks.COAL_ORE));
+        when(level.getBlockState(any())).thenReturn(stone);
+        when(level.getBlockState(ore)).thenReturn(coal);
 
         List<BlockPos> found = VisionScanner.findNearbyExposedBlocks(
             vasyanAt(level, center), 5, Set.of(Blocks.COAL_ORE));
@@ -138,12 +146,16 @@ class VisionScannerTest extends AbstractMinecraftTest {
         // stand there, so the ore must not become a gather target.
         BlockPos center = new BlockPos(0, 64, 0);
         BlockPos ore = new BlockPos(3, 64, 0);
+        BlockState stone = solid(Blocks.STONE);
+        BlockState coal = solid(Blocks.COAL_ORE);
+        BlockState airEast = open();
+        BlockState airBelow = open();
         Level level = mock(Level.class);
-        when(level.getBlockState(any())).thenReturn(solid(Blocks.STONE));
-        when(level.getBlockState(ore)).thenReturn(solid(Blocks.COAL_ORE));
+        when(level.getBlockState(any())).thenReturn(stone);
+        when(level.getBlockState(ore)).thenReturn(coal);
         // Open cells around the ore, but no headroom anywhere.
-        when(level.getBlockState(ore.east())).thenReturn(open());
-        when(level.getBlockState(ore.below())).thenReturn(open());
+        when(level.getBlockState(ore.east())).thenReturn(airEast);
+        when(level.getBlockState(ore.below())).thenReturn(airBelow);
 
         List<BlockPos> found = VisionScanner.findNearbyExposedBlocks(
             vasyanAt(level, center), 5, Set.of(Blocks.COAL_ORE));
