@@ -20,7 +20,11 @@ import org.jetbrains.annotations.Nullable;
  * <p>Ladder semantics: a capability flag of false skips that ladder step and falls through to
  * the next one (DIG_THROUGH needs canDig, PLACE_SCAFFOLD needs canPlace); each emitted ladder
  * step gets its own grace window of stallTicks, and silence for that whole window advances to
- * the next step; HOP_TELEPORT is emitted at most once per monitor instance.
+ * the next step; HOP_TELEPORT is emitted at most once per monitor instance. DIG_THROUGH is
+ * additionally capped by a per-monitor dig budget ({@code maxDigThrough}): every successfully
+ * dug block is spent from it even when the bot moves forward and the ladder re-arms on real
+ * motion, so horizontal tunneling through a mountain ends in GIVE_UP instead of an endless
+ * dig-walk-dig loop (the stone-tunnel bug).
  *
  * <p>Replan accounting: stalls consume maxReplans; navigation finishing outside the goal
  * triggers an immediate REPLAN on a separate navDoneReplans budget instead, so unstable
@@ -57,6 +61,8 @@ public final class PathMonitor {
     public static final int DEFAULT_NAV_DONE_REPLANS = 10;
     /** Default navigation speed carried into replans (matches VasyanPathing.GROUND_SPEED). */
     public static final double DEFAULT_NAV_SPEED = 1.0;
+    /** Default cap on DIG_THROUGH blocks per route (anti-tunneling). */
+    public static final int DEFAULT_MAX_DIG_THROUGH = 4;
 
     private final VasyanGoal goal;
     private final int stallTicks;
@@ -65,6 +71,8 @@ public final class PathMonitor {
     private final double navSpeed;
     private final VerticalRecoverySettings verticalRecovery;
     private final boolean hopTeleportEnabled;
+    /** Total blocks this route may dig through before the ladder stops digging. */
+    private final int maxDigThrough;
 
     private int stallCounter;
     /** Ticks spent waiting since the last navDone-triggered replan (pacing). */
@@ -73,6 +81,8 @@ public final class PathMonitor {
     private int navDoneReplansUsed;
     /** Scaffold blocks placed by vertical recovery during this monitor's lifetime. */
     private int verticalScaffoldPlaced;
+    /** Blocks dug by DIG_THROUGH during this monitor's lifetime; NEVER resets on motion. */
+    private int digThroughUsed;
     /** Last observed bot cell; a change since then counts as forward motion. */
     private BlockPos lastStallPos;
 
@@ -146,6 +156,14 @@ public final class PathMonitor {
     public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
                        double navSpeed, VerticalRecoverySettings verticalRecovery,
                        boolean hopTeleportEnabled) {
+        this(goal, stallTicks, maxReplans, navDoneReplans, navSpeed, verticalRecovery,
+            hopTeleportEnabled, DEFAULT_MAX_DIG_THROUGH);
+    }
+
+    /** Creates a monitor with fully explicit recovery capabilities and dig budget. */
+    public PathMonitor(VasyanGoal goal, int stallTicks, int maxReplans, int navDoneReplans,
+                       double navSpeed, VerticalRecoverySettings verticalRecovery,
+                       boolean hopTeleportEnabled, int maxDigThrough) {
         if (goal == null) {
             throw new IllegalArgumentException("goal must not be null");
         }
@@ -164,6 +182,9 @@ public final class PathMonitor {
         if (verticalRecovery == null) {
             throw new IllegalArgumentException("verticalRecovery must not be null");
         }
+        if (maxDigThrough < 0) {
+            throw new IllegalArgumentException("maxDigThrough must be non-negative: " + maxDigThrough);
+        }
         this.goal = goal;
         this.stallTicks = stallTicks;
         this.maxReplans = maxReplans;
@@ -171,6 +192,7 @@ public final class PathMonitor {
         this.navSpeed = navSpeed;
         this.verticalRecovery = verticalRecovery;
         this.hopTeleportEnabled = hopTeleportEnabled;
+        this.maxDigThrough = maxDigThrough;
     }
 
     /**
@@ -214,6 +236,9 @@ public final class PathMonitor {
             // This reset is therefore the contract that re-arms DESCEND/ASCEND
             // for the following step; onRecoverySuccess() intentionally does
             // NOT do it, because preparation alone must preserve ladder order.
+            // NOTE: only the ladder position re-arms - the dig budget
+            // (digThroughUsed) is lifetime accounting and never resets here,
+            // otherwise dig-walk-dig would tunnel through a whole mountain.
             step = Step.LADDER_ENTRY;
             resetWindow();
             return Decision.CONTINUE;
@@ -246,6 +271,13 @@ public final class PathMonitor {
      * recovery steps (e.g. place a scaffold ahead, then dig that same scaffold back down).
      */
     public void onRecoverySuccess() {
+        // A successful dig spends from the dig budget even though the bot then
+        // walks forward and the ladder re-arms on real motion: without this
+        // accounting every dug block bought a brand-new ladder and the bot
+        // tunnelled through a whole mountain one ladder cycle at a time.
+        if (step == Step.DIG_THROUGH) {
+            digThroughUsed++;
+        }
         resetWindow();
     }
 
@@ -350,7 +382,9 @@ public final class PathMonitor {
                 step = Step.DIG_THROUGH;
                 failed = false;
             } else if (step == Step.DIG_THROUGH) {
-                if (!canDig || failed) {
+                // The dig budget is lifetime accounting: once spent, digging is
+                // over for this route no matter how often the ladder re-armed.
+                if (!canDig || failed || digThroughUsed >= maxDigThrough) {
                     step = Step.PLACE_SCAFFOLD;
                     failed = false;
                 } else {
