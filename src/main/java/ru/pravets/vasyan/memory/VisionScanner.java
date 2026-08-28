@@ -3,7 +3,9 @@ package ru.pravets.vasyan.memory;
 import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ClipContext;
@@ -329,6 +331,23 @@ public final class VisionScanner {
         return visible;
     }
 
+    /** Solid blocks that are not ores/logs require an exposed face to be visible.
+     *  This prevents x-raying a coal vein through one pixel of air, while leaves
+     *  stay transparent and logs hidden behind canopies still count. */
+    static boolean isExposedForMining(Level level, BlockPos pos, Block block) {
+        if (block.builtInRegistryHolder().is(BlockTags.LOGS)) {
+            return true; // whole-tree felling needs logs even when fully surrounded
+        }
+        for (Direction dir : Direction.values()) {
+            BlockPos neighbor = pos.relative(dir);
+            BlockState state = level.getBlockState(neighbor);
+            if (!state.isSolid() || state.getBlock() instanceof LeavesBlock) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static Map<Block, List<BlockPos>> scanWorld(VasyanEntity vasyan) {
         Level level = vasyan.level();
         BlockPos center = vasyan.blockPosition();
@@ -348,6 +367,7 @@ public final class VisionScanner {
 
         Map<Block, Set<BlockPos>> candidates = new HashMap<>();
         collectCandidates(level, center, radius, step, candidates);
+        collectVerticalColumn(level, center, radius, candidates);
 
         // Precise pass: block-by-block in the near zone so thin targets
         // (e.g. a single oak log trunk) are never missed close to Vasyan.
@@ -374,7 +394,10 @@ public final class VisionScanner {
                 }
                 checked++;
                 if (hasLineOfSight(vasyan, pos)) {
-                    visible.computeIfAbsent(block, k -> new ArrayList<>()).add(pos);
+                    if (block.builtInRegistryHolder().is(BlockTags.LOGS)
+                            || isExposedForMining(level, pos, block)) {
+                        visible.computeIfAbsent(block, k -> new ArrayList<>()).add(pos);
+                    }
                 }
             }
         }
@@ -398,6 +421,7 @@ public final class VisionScanner {
 
         Map<Block, Set<BlockPos>> candidates = new HashMap<>();
         collectTargets(level, center, radius, step, targets, candidates);
+        collectVerticalColumn(level, center, radius, candidates);
 
         if (step > 1) {
             int preciseRadius = Math.min(PRECISE_RADIUS, radius);
@@ -415,11 +439,35 @@ public final class VisionScanner {
                 }
                 checked++;
                 if (hasLineOfSight(vasyan, pos)) {
-                    visible.add(pos);
+                    Block block = level.getBlockState(pos).getBlock();
+                    if (block.builtInRegistryHolder().is(BlockTags.LOGS)
+                            || isExposedForMining(level, pos, block)) {
+                        visible.add(pos);
+                    }
                 }
             }
         }
         return visible;
+    }
+
+    private static void collectVerticalColumn(Level level, BlockPos center, int radius,
+                                              Map<Block, Set<BlockPos>> candidates) {
+        // Make sure blocks directly above/below the bot are never skipped by a
+        // coarse grid step. This is cheap: just the center column.
+        for (int dy = -radius; dy <= radius; dy++) {
+            BlockPos pos = center.offset(0, dy, 0);
+            if (!level.hasChunkAt(pos)) {
+                continue;
+            }
+            Block block = level.getBlockState(pos).getBlock();
+            if (block == Blocks.AIR || block == Blocks.CAVE_AIR || block == Blocks.VOID_AIR) {
+                continue;
+            }
+            if (!INTERESTING.contains(block)) {
+                continue;
+            }
+            candidates.computeIfAbsent(block, k -> new LinkedHashSet<>()).add(pos.immutable());
+        }
     }
 
     private static void collectCandidates(Level level, BlockPos center, int radius, int step,
