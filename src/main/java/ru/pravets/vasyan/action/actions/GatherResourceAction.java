@@ -358,7 +358,7 @@ public class GatherResourceAction extends BaseAction {
         // the bot looks at exposed neighbors and keeps digging the same vein instead
         // of walking away.
         if (!fellMode) {
-            veinTargets.removeIf(p -> !isTargetBlockAt(p) || unreachableTargets.contains(p)
+            veinTargets.removeIf(p -> !isLogBlockAt(p) || unreachableTargets.contains(p)
                 || isInVerticalTrap(p));
             BlockPos nextVein = veinTargets.stream()
                 .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(
@@ -762,7 +762,7 @@ public class GatherResourceAction extends BaseAction {
                         continue;
                     }
                     BlockPos p = mined.offset(dx, dy, dz);
-                    if (isTargetBlockAt(p)) {
+                    if (isLogBlockAt(p)) {
                         found.add(p);
                     }
                 }
