@@ -95,10 +95,9 @@ class RCON:
         """Read exactly n bytes from the socket (kept for compatibility)."""
         data = b""
         while len(data) < n:
-            chunk = self.sock.recv(n - len(data))
-            if not chunk:
+            data += self.sock.recv(n - len(data))
+            if not data:
                 raise ConnectionError("RCON connection closed")
-            data += chunk
         return data
 
     def _auth(self, password):
@@ -812,6 +811,54 @@ def test_pathfinding_scenarios(workdir, jar_path):
         else:
             print("  -> escaped two-by-one pit via ASCEND staircase")
         print(f"  -> escaped two-by-one pit to {bot_pos()}")
+
+        # ---- J) Exposed coal just around a corner is seen and mined ----
+        print("Scenario J: exposed coal around a corner...")
+        # Regression for "бот идёт мимо угля, который чуток сбоку": a
+        # one-block-thick stone screen stands between the bot and the coal, so
+        # the eye ray to the block center is blocked; the coal's EAST face is
+        # exposed to open air with headroom (a standable approach). Only the
+        # exposed-face nearby scan can find this coal - and mining it must not
+        # destroy the screen (ore routes use allowRecovery=false).
+        rcon.command("vasyan tell Navigator stop")
+        tp_resp = rcon.command(f"tp {nav_uuid} {wx + 2} {PLAT_Y + 1} {wz + 10}")
+        if "Teleported" not in tp_resp:
+            print(f"  [FAIL] corner coal setup teleport: {tp_resp!r}")
+            return 1
+        rcon.command(f"fill {wx + 6} {PLAT_Y + 1} {wz + 8} {wx + 6} {PLAT_Y + 3} {wz + 12} minecraft:smooth_stone")
+        corner_coal = (wx + 7, PLAT_Y + 1, wz + 10)
+        rcon.command(f"setblock {corner_coal[0]} {corner_coal[1]} {corner_coal[2]} minecraft:coal_ore")
+        time.sleep(2)
+        corner_offset = os.path.getsize(log_path)
+        gather_resp = rcon.command("vasyan tell Navigator gather 1 coal")
+        print(f"  corner-coal gather response: {gather_resp!r}")
+        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "corner coal gather action"):
+            return 1
+        corner_deadline = time.time() + 240
+        corner_mined = False
+        while time.time() < corner_deadline:
+            check = rcon.command(
+                f"execute if block {corner_coal[0]} {corner_coal[1]} {corner_coal[2]} minecraft:coal_ore")
+            if "Test failed" in check:
+                corner_mined = True
+                break
+            time.sleep(3)
+        rcon.command("vasyan tell Navigator stop")
+        if not corner_mined:
+            print(f"  [FAIL] corner coal was never mined: bot_pos={bot_pos()}")
+            return 1
+        with open(log_path, "r", errors="replace") as f:
+            f.seek(corner_offset)
+            corner_segment = f.read()
+        if "dug through" in corner_segment:
+            print("  [FAIL] gather dug through terrain to reach the corner coal")
+            return 1
+        screen_check = rcon.command(
+            f"execute if block {wx + 6} {PLAT_Y + 1} {wz + 10} minecraft:smooth_stone")
+        if "Test passed" not in screen_check:
+            print("  [FAIL] the vision screen was destroyed - the bot went through, not around")
+            return 1
+        print("  -> exposed corner coal found and mined around the screen, no digging")
 
         # Cleanup: remove bot and blocks best-effort.
         rcon.command("vasyan remove Navigator")
