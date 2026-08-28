@@ -357,6 +357,15 @@ public class GatherResourceAction extends BaseAction {
             return;
         }
 
+        // If we just arrived at a look-out station and it has no targets, mark it empty
+        // before picking the next one. Do NOT mark a mine target or a station we have
+        // not reached yet.
+        if (routeTarget != null && routeGoal != null
+                && (mineTarget == null || !routeTarget.equals(mineTarget))
+                && routeGoal.hasReached(vasyan.blockPosition())) {
+            GlobalResourceMemory.rememberEmptyStation(memoryKey, routeTarget, nowMem);
+        }
+
         // A target existed but all were unreachable by land (swamp islands):
         // blacklist them so we do not re-pick and re-walk into the water.
         for (BlockPos p : all) {
@@ -393,9 +402,6 @@ public class GatherResourceAction extends BaseAction {
             // giving up ("Nothing found") or standing still forever.
             expandDir++;
             BlockPos station = expandStation();
-            if (!GlobalResourceMemory.isEmptyStation(memoryKey, station, nowMem, memoryRadius)) {
-                GlobalResourceMemory.rememberEmptyStation(memoryKey, station, nowMem);
-            }
             debugLog("SEARCH", "no targets locally, expanding outward to " + station);
             routeTarget = station;
             phase = Phase.ROUTING;
@@ -413,7 +419,6 @@ public class GatherResourceAction extends BaseAction {
         }
         searchState = ResourceSearchPlanner.next(searchState, VasyanConfig.GATHER_STATIONS_PER_RING.get());
         debugLog("SEARCH", "no target visible, next station " + station);
-        GlobalResourceMemory.rememberEmptyStation(memoryKey, station, nowMem);
 
         routeTarget = station;
         phase = Phase.ROUTING;
