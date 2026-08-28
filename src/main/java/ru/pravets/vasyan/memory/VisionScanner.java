@@ -218,10 +218,17 @@ public final class VisionScanner {
     public static List<BlockPos> findNearbyExposedBlocks(VasyanEntity vasyan, int radius,
                                                          Set<Block> targets) {
         Level level = vasyan.level();
-        return findNearbyBlocks(vasyan, radius, targets).stream()
+        List<BlockPos> raw = findNearbyBlocks(vasyan, radius, targets);
+        List<BlockPos> kept = raw.stream()
             .filter(p -> isExposedForMining(level, p, level.getBlockState(p).getBlock()))
             .filter(p -> hasStandableApproach(level, p))
             .toList();
+        // TEMP CI DEBUG (scenario J): raw vs kept counts in the server log.
+        org.slf4j.LoggerFactory.getLogger("VasyanMod").info(
+            "Vasyan '{}': nearbyExposed at {} raw={} kept={} first={}",
+            vasyan.getVasyanName(), vasyan.blockPosition(), raw.size(), kept.size(),
+            kept.isEmpty() ? "-" : kept.get(0));
+        return kept;
     }
 
     /**
