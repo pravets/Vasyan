@@ -61,24 +61,26 @@ class VasyanPathingTest extends AbstractMinecraftTest {
     @Test
     void pitEscapeCanUseClearStepWhenNoScaffold() {
         BlockPos bot = new BlockPos(0, 64, 0);
-        BlockPos anchor = new BlockPos(0, 66, 0);
-        // East step at y=65 is a breakable wall: bot can break it and step up.
+        BlockPos anchor = new BlockPos(0, 65, 0);
+        // Bot is boxed in at the bottom of a 1-deep pit. The usable step is the
+        // east wall one block above the floor: break it, then move into the cell.
         VerticalTraversalPlanner.WorldView world = new VerticalTraversalPlanner.WorldView() {
             @Override
             public boolean isOpen(BlockPos pos) {
-                if (pos.equals(bot.east())) return false; // breakable wall to clear
-                if (pos.equals(bot.east().above().above())) return false; // ceiling above head
-                return true;
+                // Only the headroom above the east step is open air.
+                return pos.equals(bot.east().above().above());
             }
 
             @Override
             public boolean isSolidSupport(BlockPos pos) {
+                // Floor under the bot, and the support block under the east step.
                 return pos.equals(bot.below()) || pos.equals(bot.east().below());
             }
 
             @Override
             public boolean isBreakable(BlockPos pos) {
-                return pos.equals(bot.east());
+                // The east wall at step height is the breakable cell.
+                return pos.equals(bot.east().above());
             }
 
             @Override
