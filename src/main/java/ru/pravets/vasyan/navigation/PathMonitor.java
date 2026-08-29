@@ -3,6 +3,9 @@ package ru.pravets.vasyan.navigation;
 import net.minecraft.core.BlockPos;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Pure stall/replan/fallback state machine for bot navigation.
  *
@@ -83,6 +86,10 @@ public final class PathMonitor {
     private int verticalScaffoldPlaced;
     /** Blocks dug by DIG_THROUGH during this monitor's lifetime; NEVER resets on motion. */
     private int digThroughUsed;
+    /** Support/scaffold blocks placed by this route's recovery; dismantled on give-up
+     *  so a bot that pillared into a dead pocket drops back out instead of trapping
+     *  itself on its own block (Bob's dirt-niche self-trap). */
+    private final List<BlockPos> placedSupports = new ArrayList<>();
     /** Last observed bot cell; a change since then counts as forward motion. */
     private BlockPos lastStallPos;
 
@@ -329,6 +336,18 @@ public final class PathMonitor {
     /** Vertical recovery settings carried by this monitor (pit-escape probing reads them). */
     public VerticalRecoverySettings verticalRecovery() {
         return verticalRecovery;
+    }
+
+    /** Records a support/scaffold block placed by recovery (dismantled on give-up). */
+    public void recordPlacedSupport(BlockPos pos) {
+        if (placedSupports.size() < 64) {
+            placedSupports.add(pos.immutable());
+        }
+    }
+
+    /** Support blocks placed by this route so far, oldest first. */
+    public List<BlockPos> placedSupports() {
+        return placedSupports;
     }
 
     private Decision handleNavDoneOutsideGoal(boolean canDig, boolean canPlace, BlockPos botPos) {

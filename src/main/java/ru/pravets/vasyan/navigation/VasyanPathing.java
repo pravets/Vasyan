@@ -487,6 +487,7 @@ public final class VasyanPathing {
         VasyanMod.LOGGER.warn("Vasyan '{}': placed support {} at {}",
             name, blockItem.getBlock().getName().getString(), target.toShortString());
         monitor.recordVerticalScaffoldPlacement();
+        monitor.recordPlacedSupport(target);
         return true;
     }
 
@@ -642,6 +643,7 @@ public final class VasyanPathing {
         stack.shrink(1);
         VasyanMod.LOGGER.warn("Vasyan '{}': placed scaffold {} at {}", name,
             blockItem.getBlock().getName().getString(), placePos.toShortString());
+        monitor.recordPlacedSupport(placePos);
         monitor.onRecoverySuccess();
         replan(vasyan, monitor);
     }
@@ -673,6 +675,30 @@ public final class VasyanPathing {
         VasyanMod.LOGGER.warn("Vasyan '{}': giving up on {}",
             vasyan.getVasyanName(), monitor.goal().describe());
         vasyan.getNavigation().stop();
+        dismantlePlacedSupports(vasyan, monitor);
+    }
+
+    /**
+     * Breaks every support/scaffold block this route placed (drops enabled, the
+     * vacuum re-collects them). A bot that pillared into a dead pocket falls back
+     * out instead of staying trapped on its own block; the next route attempt
+     * starts from the freed corridor with a fresh ladder.
+     */
+    private static void dismantlePlacedSupports(VasyanEntity vasyan, PathMonitor monitor) {
+        if (monitor.placedSupports().isEmpty()) {
+            return;
+        }
+        Level level = vasyan.level();
+        for (BlockPos pos : monitor.placedSupports()) {
+            if (!isBreakable(level, pos)) {
+                continue;
+            }
+            if (level.destroyBlock(pos, true)) {
+                VasyanMod.LOGGER.warn("Vasyan '{}': dismantled support at {}",
+                    vasyan.getVasyanName(), pos.toShortString());
+            }
+        }
+        monitor.placedSupports().clear();
     }
 
     /**
