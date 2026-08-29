@@ -138,6 +138,18 @@ public final class VasyanPathing {
         enforce(vasyan, monitor, true);
     }
 
+    /** Recovery capabilities granted to one route attempt. */
+    public enum RecoveryPolicy {
+        /** Honest give-up on any stall (no recovery at all). */
+        NONE,
+        /** Climb UP to a visible exposed target only: no dig-through, no forward
+         *  scaffold, no hop-teleport. An exposed coal face on a pit wall above
+         *  the bot is reached by pillaring, never by tunneling (Alex' pit). */
+        ASCEND_ONLY,
+        /** Full ladder: replan, vertical, dig (budget-capped), scaffold, hop. */
+        FULL
+    }
+
     /**
      * Enforces the monitor decision. When {@code allowRecovery} is false, the bot will
      * not dig, place scaffold, step vertically or teleport for this route: if the goal
@@ -145,6 +157,16 @@ public final class VasyanPathing {
      * routes, where chasing an ore must never turn into tunneling.
      */
     public static void enforce(VasyanEntity vasyan, PathMonitor monitor, boolean allowRecovery) {
+        enforce(vasyan, monitor, allowRecovery ? RecoveryPolicy.FULL : RecoveryPolicy.NONE);
+    }
+
+    /**
+     * Enforces the monitor decision under an explicit recovery policy:
+     * {@link RecoveryPolicy#NONE} gives up on any stall, {@link RecoveryPolicy#ASCEND_ONLY}
+     * permits only climbing up to a goal above the bot, {@link RecoveryPolicy#FULL} runs
+     * the whole ladder.
+     */
+    public static void enforce(VasyanEntity vasyan, PathMonitor monitor, RecoveryPolicy policy) {
         Objects.requireNonNull(vasyan, "vasyan");
         Objects.requireNonNull(monitor, "monitor");
         if (vasyan.level().isClientSide()) {
@@ -153,9 +175,10 @@ public final class VasyanPathing {
 
         PathNavigation nav = vasyan.getNavigation();
         boolean navDone = nav.isDone();
-        BlockPos diggable = allowRecovery ? findDiggableAhead(vasyan, monitor.goal()) : null;
-        boolean canDig = allowRecovery && diggable != null;
-        boolean canPlace = allowRecovery && findScaffoldStack(vasyan) != null;
+        boolean full = policy == RecoveryPolicy.FULL;
+        BlockPos diggable = full ? findDiggableAhead(vasyan, monitor.goal()) : null;
+        boolean canDig = full && diggable != null;
+        boolean canPlace = full && findScaffoldStack(vasyan) != null;
 
         // Temporary diagnostics for behavior scenario C (wall dig-through).
         if (vasyan.tickCount % 40 == 0) {
@@ -174,11 +197,23 @@ public final class VasyanPathing {
             }
             case REPLAN -> replan(vasyan, monitor);
             case DESCEND_STEP, ASCEND_STEP, DIG_THROUGH, PLACE_SCAFFOLD, HOP_TELEPORT -> {
-                if (allowRecovery) {
-                    switch (decision) {
-                        case DESCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
-                        case ASCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND);
-                        case DIG_THROUGH -> {
+                switch (decision) {
+                    case DESCEND_STEP -> {
+                        if (policy == RecoveryPolicy.FULL) {
+                            verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
+                        } else {
+                            giveUp(vasyan, monitor);
+                        }
+                    }
+                    case ASCEND_STEP -> {
+                        if (policy != RecoveryPolicy.NONE) {
+                            verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND);
+                        } else {
+                            giveUp(vasyan, monitor);
+                        }
+                    }
+                    case DIG_THROUGH -> {
+                        if (policy == RecoveryPolicy.FULL) {
                             // Level goal + boxed-in bot = a pit, not a wall: the
                             // vertical ladder keys off the goal's Y and never fires
                             // here, so climb out to the local surface instead of
@@ -189,13 +224,25 @@ public final class VasyanPathing {
                             } else {
                                 digThrough(vasyan, monitor, diggable);
                             }
+                        } else {
+                            giveUp(vasyan, monitor);
                         }
-                        case PLACE_SCAFFOLD -> placeScaffold(vasyan, monitor);
-                        case HOP_TELEPORT -> hopTeleport(vasyan, monitor);
-                        default -> {}
                     }
-                } else {
-                    giveUp(vasyan, monitor);
+                    case PLACE_SCAFFOLD -> {
+                        if (policy == RecoveryPolicy.FULL) {
+                            placeScaffold(vasyan, monitor);
+                        } else {
+                            giveUp(vasyan, monitor);
+                        }
+                    }
+                    case HOP_TELEPORT -> {
+                        if (policy == RecoveryPolicy.FULL) {
+                            hopTeleport(vasyan, monitor);
+                        } else {
+                            giveUp(vasyan, monitor);
+                        }
+                    }
+                    default -> {}
                 }
             }
             case GIVE_UP -> giveUp(vasyan, monitor);

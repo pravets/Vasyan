@@ -336,6 +336,35 @@ public final class VisionScanner {
     }
 
     /**
+     * Line of sight for a mining candidate: ray to the block CENTER first; if
+     * that clips a terrain lip, try a ray to the center of each already-open
+     * (non-solid or leaves) neighbor cell. An ore exposed on a wall just above
+     * the bot is visible through its open face even when the single center ray
+     * grazes the shaft edge (Alex' pit-wall coal). Buried ore gains nothing:
+     * with no open neighbor there is no extra ray, so anti-xray stays intact.
+     */
+    public static boolean hasLineOfSightForMining(VasyanEntity vasyan, BlockPos target, Block block) {
+        if (hasLineOfSight(vasyan, target)) {
+            return true;
+        }
+        if (block.builtInRegistryHolder().is(BlockTags.LOGS)) {
+            return false; // logs: thin trunk through canopy relies on the center ray
+        }
+        Level level = vasyan.level();
+        for (Direction dir : Direction.values()) {
+            BlockPos neighbor = target.relative(dir);
+            BlockState neighborState = level.getBlockState(neighbor);
+            if (neighborState.isSolid() && !(neighborState.getBlock() instanceof LeavesBlock)) {
+                continue; // face not open - no honest ray through it
+            }
+            if (hasLineOfSight(vasyan, neighbor)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Drops the cached scan for a Vasyan (call when the entity is removed/despawned).
      */
     public static void forget(VasyanEntity vasyan) {
@@ -436,9 +465,9 @@ public final class VisionScanner {
                     break;
                 }
                 checked++;
-                if (hasLineOfSight(vasyan, pos)) {
-                    if (block.builtInRegistryHolder().is(BlockTags.LOGS)
-                            || isExposedForMining(level, pos, block)) {
+                if (block.builtInRegistryHolder().is(BlockTags.LOGS)
+                        || isExposedForMining(level, pos, block)) {
+                    if (hasLineOfSightForMining(vasyan, pos, block)) {
                         visible.computeIfAbsent(block, k -> new ArrayList<>()).add(pos);
                     }
                 }
@@ -481,10 +510,10 @@ public final class VisionScanner {
                     break;
                 }
                 checked++;
-                if (hasLineOfSight(vasyan, pos)) {
-                    Block block = level.getBlockState(pos).getBlock();
-                    if (block.builtInRegistryHolder().is(BlockTags.LOGS)
-                            || isExposedForMining(level, pos, block)) {
+                Block block = level.getBlockState(pos).getBlock();
+                if (block.builtInRegistryHolder().is(BlockTags.LOGS)
+                        || isExposedForMining(level, pos, block)) {
+                    if (hasLineOfSightForMining(vasyan, pos, block)) {
                         visible.add(pos);
                     }
                 }

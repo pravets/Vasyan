@@ -508,8 +508,27 @@ public class GatherResourceAction extends BaseAction {
         }
 
         routeBudgets = routeBudgets.nextTick(nowNano);
-        boolean allowRecovery = !(routeTarget.equals(mineTarget) && !logTarget);
-        VasyanPathing.enforce(vasyan, routeMonitor, allowRecovery);
+        VasyanPathing.enforce(vasyan, routeMonitor, recoveryPolicy());
+    }
+
+    /**
+     * Recovery policy for the current route: stations get the full ladder (the
+     * dig budget caps tunnels), tree routes keep full recovery, and ORE routes
+     * may only climb UP to a visible exposed face (ASCEND_ONLY) - never dig,
+     * never bridge forward, never teleport.
+     */
+    private VasyanPathing.RecoveryPolicy recoveryPolicy() {
+        return recoveryPolicyFor(routeTarget != null && routeTarget.equals(mineTarget), logTarget);
+    }
+
+    /** Pure mapping for unit tests: (mine route?, log target?) -> policy. */
+    static VasyanPathing.RecoveryPolicy recoveryPolicyFor(boolean mineRoute, boolean logTarget) {
+        if (!mineRoute) {
+            return VasyanPathing.RecoveryPolicy.FULL;
+        }
+        return logTarget
+            ? VasyanPathing.RecoveryPolicy.FULL
+            : VasyanPathing.RecoveryPolicy.ASCEND_ONLY;
     }
 
     /**
@@ -658,7 +677,9 @@ public class GatherResourceAction extends BaseAction {
     private boolean canMineFromHere(BlockPos target) {
         return canMineFrom(
             vasyan.distanceToSqr(target.getX() + 0.5, target.getY() + 0.5, target.getZ() + 0.5),
-            VisionScanner.hasLineOfSight(vasyan, target));
+            targetBlock != null
+                ? VisionScanner.hasLineOfSightForMining(vasyan, target, targetBlock)
+                : VisionScanner.hasLineOfSight(vasyan, target));
     }
 
     /** Raw no-LOS discovery is a foliage workaround for logs only; ores use the

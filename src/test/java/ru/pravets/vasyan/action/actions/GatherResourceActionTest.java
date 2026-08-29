@@ -3,6 +3,7 @@ package ru.pravets.vasyan.action.actions;
 import org.junit.jupiter.api.Test;
 import ru.pravets.vasyan.testutil.AbstractMinecraftTest;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -25,5 +26,18 @@ class GatherResourceActionTest extends AbstractMinecraftTest {
         assertTrue(GatherResourceAction.canMineFrom(25.0, true),
             "the historical five-block reach boundary remains inclusive");
         assertFalse(GatherResourceAction.canMineFrom(26.0, true));
+    }
+
+    @Test
+    void oreRoutesGetAscendOnlyStationsAndTreesGetFull() {
+        assertEquals(ru.pravets.vasyan.navigation.VasyanPathing.RecoveryPolicy.ASCEND_ONLY,
+            GatherResourceAction.recoveryPolicyFor(true, false),
+            "ore routes may only climb UP to a visible exposed face - never dig/tunnel");
+        assertEquals(ru.pravets.vasyan.navigation.VasyanPathing.RecoveryPolicy.FULL,
+            GatherResourceAction.recoveryPolicyFor(true, true),
+            "tree routes keep full recovery (canopy pillars)");
+        assertEquals(ru.pravets.vasyan.navigation.VasyanPathing.RecoveryPolicy.FULL,
+            GatherResourceAction.recoveryPolicyFor(false, false),
+            "look-out stations keep the full ladder (dig budget caps tunnels)");
     }
 }
