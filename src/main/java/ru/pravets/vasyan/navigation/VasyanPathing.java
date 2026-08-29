@@ -61,6 +61,22 @@ public final class VasyanPathing {
     private static final Set<Block> UNBREAKABLE = Set.of(
         Blocks.BEDROCK, Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN, Blocks.REINFORCED_DEEPSLATE);
 
+    /**
+     * Ores the navigation layer must never break: digThrough / clearVerticalStep
+     * destroy blocks WITHOUT drops, so carving through a vein would silently
+     * delete the resource the bot was sent to gather. Ore is mined as a target.
+     */
+    private static final Set<Block> NEVER_BREAK = Set.of(
+        Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
+        Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
+        Blocks.COPPER_ORE, Blocks.DEEPSLATE_COPPER_ORE,
+        Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE,
+        Blocks.REDSTONE_ORE, Blocks.DEEPSLATE_REDSTONE_ORE,
+        Blocks.LAPIS_ORE, Blocks.DEEPSLATE_LAPIS_ORE,
+        Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
+        Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE,
+        Blocks.NETHER_GOLD_ORE, Blocks.NETHER_QUARTZ_ORE, Blocks.ANCIENT_DEBRIS);
+
     /** Ground walking speed modifier passed to {@link PathNavigation#moveTo(double, double, double, double)}. */
     private static final double GROUND_SPEED = 1.0;
 
@@ -142,10 +158,11 @@ public final class VasyanPathing {
     public enum RecoveryPolicy {
         /** Honest give-up on any stall (no recovery at all). */
         NONE,
-        /** Climb UP to a visible exposed target only: no dig-through, no forward
-         *  scaffold, no hop-teleport. An exposed coal face on a pit wall above
-         *  the bot is reached by pillaring, never by tunneling (Alex' pit). */
-        ASCEND_ONLY,
+        /** Vertical staircase only (up AND down) to a visible exposed target:
+         *  no dig-through, no forward scaffold, no hop-teleport. An exposed coal
+         *  face on a pit wall is reached by climbing, never by tunneling, and
+         *  never at the cost of the vein itself (Alex' pit). */
+        VERTICAL_ONLY,
         /** Full ladder: replan, vertical, dig (budget-capped), scaffold, hop. */
         FULL
     }
@@ -199,7 +216,7 @@ public final class VasyanPathing {
             case DESCEND_STEP, ASCEND_STEP, DIG_THROUGH, PLACE_SCAFFOLD, HOP_TELEPORT -> {
                 switch (decision) {
                     case DESCEND_STEP -> {
-                        if (policy == RecoveryPolicy.FULL) {
+                        if (policy != RecoveryPolicy.NONE) {
                             verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
                         } else {
                             giveUp(vasyan, monitor);
@@ -275,13 +292,23 @@ public final class VasyanPathing {
         String name = vasyan.getVasyanName();
         Level level = vasyan.level();
         BlockPos botPos = vasyan.blockPosition();
+        VerticalTraversalPlanner.WorldView world = verticalWorld(level);
+        boolean maskOwnColumn = false;
         // Preparation and movement must happen in one monitor decision. If we
         // only clear/place and wait for the next stall, PathMonitor would treat
         // the successful preparation as a completed vertical step and advance
         // the ladder to DIG_THROUGH without ever steering onto the new step.
         for (int i = 0; i < 4; i++) {
-            var step = VerticalTraversalPlanner.nextStep(botPos, anchor, mode, verticalWorld(level));
+            var step = VerticalTraversalPlanner.nextStep(botPos, anchor, mode,
+                maskOwnColumn ? maskingOwnColumn(world, botPos) : world);
             if (step.isEmpty()) {
+                if (!maskOwnColumn && mode == VerticalTraversalPlanner.Mode.ASCEND) {
+                    // Own column is unusable (e.g. no scaffold for the pillar):
+                    // mask it once so the planner carves a staircase into the
+                    // pit wall (CLEAR/MOVE side steps) instead of giving up.
+                    maskOwnColumn = true;
+                    continue;
+                }
                 VasyanMod.LOGGER.warn("Vasyan '{}': {} failed, no safe staircase step near {} towards {}",
                     name, mode, botPos.toShortString(), anchor.toShortString());
                 return;
@@ -302,6 +329,12 @@ public final class VasyanPathing {
                     if (mode == VerticalTraversalPlanner.Mode.ASCEND
                             && placeSupportAt(vasyan, monitor, botPos)) {
                         monitor.onRecoverySuccess();
+                    } else if (mode == VerticalTraversalPlanner.Mode.ASCEND && !maskOwnColumn) {
+                        // No scaffold blocks at all: retry once with the own
+                        // column masked so the planner offers a CLEAR/MOVE
+                        // wall-step the bot can take with bare hands.
+                        maskOwnColumn = true;
+                        continue;
                     }
                     return;
                 }
@@ -345,6 +378,36 @@ public final class VasyanPathing {
             public boolean isUnsafeLiquid(BlockPos pos) {
                 FluidState fluid = level.getBlockState(pos).getFluidState();
                 return fluid.is(Fluids.LAVA) || fluid.is(Fluids.FLOWING_LAVA);
+            }
+        };
+    }
+
+    /**
+     * World view with the bot's own column reported as not open: the planner then
+     * skips the pillar-up own-column option and offers side CLEAR/MOVE steps
+     * instead (used when the bot has no scaffold blocks to place).
+     */
+    private static VerticalTraversalPlanner.WorldView maskingOwnColumn(
+            VerticalTraversalPlanner.WorldView delegate, BlockPos own) {
+        return new VerticalTraversalPlanner.WorldView() {
+            @Override
+            public boolean isOpen(BlockPos pos) {
+                return !pos.equals(own) && delegate.isOpen(pos);
+            }
+
+            @Override
+            public boolean isSolidSupport(BlockPos pos) {
+                return delegate.isSolidSupport(pos);
+            }
+
+            @Override
+            public boolean isBreakable(BlockPos pos) {
+                return delegate.isBreakable(pos);
+            }
+
+            @Override
+            public boolean isUnsafeLiquid(BlockPos pos) {
+                return delegate.isUnsafeLiquid(pos);
             }
         };
     }
@@ -669,6 +732,13 @@ public final class VasyanPathing {
     private static boolean isBreakable(Level level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         if (state.isAir() || isLiquid(state.getFluidState()) || state.canBeReplaced()) {
+            return false;
+        }
+        // Ores are never broken by navigation: digThrough and clearVerticalStep
+        // both destroy blocks WITHOUT drops, so tunnelling/carving through a
+        // vein silently deletes the resource the bot was sent to gather
+        // (Alex' station route ate a coal vein). Ore must be mined as a target.
+        if (NEVER_BREAK.contains(state.getBlock())) {
             return false;
         }
         return !UNBREAKABLE.contains(state.getBlock())

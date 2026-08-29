@@ -514,8 +514,8 @@ public class GatherResourceAction extends BaseAction {
     /**
      * Recovery policy for the current route: stations get the full ladder (the
      * dig budget caps tunnels), tree routes keep full recovery, and ORE routes
-     * may only climb UP to a visible exposed face (ASCEND_ONLY) - never dig,
-     * never bridge forward, never teleport.
+     * may only climb/descend to a visible exposed face (VERTICAL_ONLY) - never
+     * dig through, never bridge forward, never teleport.
      */
     private VasyanPathing.RecoveryPolicy recoveryPolicy() {
         return recoveryPolicyFor(routeTarget != null && routeTarget.equals(mineTarget), logTarget);
@@ -528,7 +528,7 @@ public class GatherResourceAction extends BaseAction {
         }
         return logTarget
             ? VasyanPathing.RecoveryPolicy.FULL
-            : VasyanPathing.RecoveryPolicy.ASCEND_ONLY;
+            : VasyanPathing.RecoveryPolicy.VERTICAL_ONLY;
     }
 
     /**

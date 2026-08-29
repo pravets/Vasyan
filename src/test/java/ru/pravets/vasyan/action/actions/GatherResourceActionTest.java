@@ -29,10 +29,10 @@ class GatherResourceActionTest extends AbstractMinecraftTest {
     }
 
     @Test
-    void oreRoutesGetAscendOnlyStationsAndTreesGetFull() {
-        assertEquals(ru.pravets.vasyan.navigation.VasyanPathing.RecoveryPolicy.ASCEND_ONLY,
+    void oreRoutesGetVerticalOnlyStationsAndTreesGetFull() {
+        assertEquals(ru.pravets.vasyan.navigation.VasyanPathing.RecoveryPolicy.VERTICAL_ONLY,
             GatherResourceAction.recoveryPolicyFor(true, false),
-            "ore routes may only climb UP to a visible exposed face - never dig/tunnel");
+            "ore routes may only climb/descend to a visible exposed face - never dig/tunnel");
         assertEquals(ru.pravets.vasyan.navigation.VasyanPathing.RecoveryPolicy.FULL,
             GatherResourceAction.recoveryPolicyFor(true, true),
             "tree routes keep full recovery (canopy pillars)");
