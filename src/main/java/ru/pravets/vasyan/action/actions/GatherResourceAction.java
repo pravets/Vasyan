@@ -345,20 +345,16 @@ public class GatherResourceAction extends BaseAction {
         long nowMem = vasyan.level().getGameTime();
         int memoryRadius = VasyanConfig.GATHER_MEMORY_RADIUS.get();
         BlockPos center = vasyan.blockPosition();
-        // TEMP CI DEBUG (scenario J): which filter rejects each candidate.
-        for (BlockPos p : all) {
-            org.slf4j.LoggerFactory.getLogger("VasyanMod").info(
-                "Vasyan '{}': SEARCH cand={} unr={} trap={} mem={} water={}",
-                vasyan.getVasyanName(), p,
-                unreachableTargets.contains(p), isInVerticalTrap(p),
-                GlobalResourceMemory.isUnreachable(memoryKey, p, nowMem, memoryRadius),
-                isUnderwaterTarget(p));
-        }
         BlockPos mine = all.stream()
             .filter(p -> !unreachableTargets.contains(p))
             .filter(p -> !isInVerticalTrap(p))
             .filter(p -> !GlobalResourceMemory.isUnreachable(memoryKey, p, nowMem, memoryRadius))
-            .filter(p -> !isUnderwaterTarget(p)) // swamp: never dive for a log (drop loss, air)
+            // swamp: never dive for a LOG (drop loss, air). Ores are exempt:
+            // the standable-approach gate already guarantees the bot mines
+            // from dry land, and ore above a water channel is a legit target
+            // (scenario J regression: corner coal sat above the river and was
+            // filtered out forever).
+            .filter(p -> !logTarget || !isUnderwaterTarget(p))
             .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)))
             .orElse(null);
         if (mine != null) {
@@ -384,7 +380,7 @@ public class GatherResourceAction extends BaseAction {
         // A target existed but all were unreachable by land (swamp islands):
         // blacklist them so we do not re-pick and re-walk into the water.
         for (BlockPos p : all) {
-            if (!unreachableTargets.contains(p) && isUnderwaterTarget(p)) {
+            if (logTarget && !unreachableTargets.contains(p) && isUnderwaterTarget(p)) {
                 unreachableTargets.add(p);
             }
         }
