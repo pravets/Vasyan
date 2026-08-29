@@ -409,16 +409,28 @@ public final class VasyanPathing {
         if (!isBoxedIn(level, botPos)) {
             return null; // a single wall ahead is DIG_THROUGH's job (scenario C)
         }
-        if (findScaffoldStack(vasyan) == null) {
-            return null; // nothing to pillar with: fall back to digging
-        }
         BlockPos surface = level.getHeightmapPos(
             net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, botPos);
         int climb = surface.getY() - botPos.getY();
         if (climb <= 0 || climb > monitor.verticalRecovery().maxDistance()) {
             return null; // already at the surface, or in a deep cave: no honest escape
         }
-        return new BlockPos(botPos.getX(), surface.getY(), botPos.getZ());
+        BlockPos escapeAnchor = new BlockPos(botPos.getX(), surface.getY(), botPos.getZ());
+        // A boxed bot can climb out by breaking a step into the pit wall (CLEAR/MOVE)
+        // even with an empty inventory. Only refuse the escape when the ascent needs
+        // placed support and no scaffold blocks are available.
+        if (canAscendByClearing(botPos, escapeAnchor, verticalWorld(level)) || findScaffoldStack(vasyan) != null) {
+            return escapeAnchor;
+        }
+        return null;
+    }
+
+    /** True when the first ASCEND step can be taken by clearing or moving, without placing support. */
+    static boolean canAscendByClearing(BlockPos botPos, BlockPos anchor,
+                                       VerticalTraversalPlanner.WorldView world) {
+        return VerticalTraversalPlanner.nextStep(botPos, anchor, VerticalTraversalPlanner.Mode.ASCEND, world)
+            .map(step -> step.action() != VerticalTraversalPlanner.Action.PLACE_SUPPORT)
+            .orElse(false);
     }
 
     /** Whether at least 3 of the 4 horizontal walking exits from {@code botPos} are blocked. */
