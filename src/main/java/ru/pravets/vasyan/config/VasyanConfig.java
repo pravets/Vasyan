@@ -236,7 +236,9 @@ public class VasyanConfig {
             .defineInRange("scanRadius", 32, 8, 64);
 
         WORLD_SCAN_STEP = builder
-            .comment("Scan grid step (1 = every block, 2 = every other block).",
+            .comment("Horizontal scan grid step (1 = every column, 2 = every other column).",
+                "The Y axis is always scanned at step 1: ore veins are vertically thin,",
+                "so a coarse Y step would hide exposed faces above/below the bot.",
                 "Lower = more precise but slower. 2 is fine for finding trees/ores/chests.")
             .defineInRange("scanStep", 2, 1, 8);
 

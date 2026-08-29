@@ -426,16 +426,11 @@ public final class VisionScanner {
         int radius = VasyanConfig.WORLD_SCAN_RADIUS.get();
         int configuredStep = Math.max(1, VasyanConfig.WORLD_SCAN_STEP.get());
 
-        // Budget guard: auto-increase the effective step so a full scan stays
+        // Budget guard: auto-increase the effective XZ step so a full scan stays
         // within MAX_SCAN_POSITIONS block lookups (no server tick stalls).
-        int step = configuredStep;
-        while (step <= 8) {
-            long positions = (long) Math.pow((2L * radius / step) + 1, 3);
-            if (positions <= MAX_SCAN_POSITIONS) {
-                break;
-            }
-            step *= 2;
-        }
+        // The Y axis is always scanned at step 1: ore veins are vertically thin,
+        // so a coarse Y step makes the bot blind to exposed faces above/below it.
+        int step = effectiveStep(radius, configuredStep);
 
         Map<Block, Set<BlockPos>> candidates = new HashMap<>();
         collectCandidates(level, center, radius, step, candidates);
@@ -482,14 +477,7 @@ public final class VisionScanner {
         int radius = VasyanConfig.WORLD_SCAN_RADIUS.get();
         int configuredStep = Math.max(1, VasyanConfig.WORLD_SCAN_STEP.get());
 
-        int step = configuredStep;
-        while (step <= 8) {
-            long positions = (long) Math.pow((2L * radius / step) + 1, 3);
-            if (positions <= MAX_SCAN_POSITIONS) {
-                break;
-            }
-            step *= 2;
-        }
+        int step = effectiveStep(radius, configuredStep);
 
         Map<Block, Set<BlockPos>> candidates = new HashMap<>();
         collectTargets(level, center, radius, step, targets, candidates);
@@ -542,10 +530,30 @@ public final class VisionScanner {
         }
     }
 
-    private static void collectCandidates(Level level, BlockPos center, int radius, int step,
+    /**
+     * Effective horizontal step for one scan: starts at the configured step and
+     * doubles until the lookup count fits MAX_SCAN_POSITIONS. The estimate is
+     * XZ-area × full Y column, because the Y axis is always scanned at step 1 -
+     * a coarse Y step would skip whole layers and hide exposed ore faces above
+     * or below the bot (the "blind to a cliff-face vein" bug).
+     */
+    static int effectiveStep(int radius, int configuredStep) {
+        int step = Math.max(1, configuredStep);
+        while (step <= 8) {
+            long horizontal = (2L * radius / step) + 1;
+            long positions = horizontal * horizontal * ((2L * radius) + 1);
+            if (positions <= MAX_SCAN_POSITIONS) {
+                break;
+            }
+            step *= 2;
+        }
+        return step;
+    }
+
+    static void collectCandidates(Level level, BlockPos center, int radius, int step,
                                           Map<Block, Set<BlockPos>> candidates) {
         for (int dx = -radius; dx <= radius; dx += step) {
-            for (int dy = -radius; dy <= radius; dy += step) {
+            for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz += step) {
                     BlockPos pos = center.offset(dx, dy, dz);
                     // Never load chunks synchronously on the server tick
@@ -568,7 +576,7 @@ public final class VisionScanner {
     private static void collectTargets(Level level, BlockPos center, int radius, int step,
                                        Set<Block> targets, Map<Block, Set<BlockPos>> candidates) {
         for (int dx = -radius; dx <= radius; dx += step) {
-            for (int dy = -radius; dy <= radius; dy += step) {
+            for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz += step) {
                     BlockPos pos = center.offset(dx, dy, dz);
                     // Never load chunks synchronously on the server tick

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -161,5 +162,40 @@ class VisionScannerTest extends AbstractMinecraftTest {
             vasyanAt(level, center), 5, Set.of(Blocks.COAL_ORE));
         assertTrue(found.isEmpty(),
             "exposed but unreachable ore (no headroom) must not be a target");
+    }
+
+    // ---- vertical scan coverage (Y is always step 1) ----
+
+    @Test
+    void coarseScanNeverSkipsYLayers() {
+        // Ore on an ODD dy layer (+3) with a horizontal step of 2: the old
+        // cube grid (dy += step) skipped whole Y layers and missed exactly
+        // these blocks; the vertical axis must always be scanned at step 1.
+        BlockPos center = new BlockPos(0, 64, 0);
+        BlockPos ore = new BlockPos(4, 67, 0); // dx=4 (on grid), dy=+3 (between layers)
+        BlockState stone = solid(Blocks.STONE);
+        BlockState coal = solid(Blocks.COAL_ORE);
+        Level level = mock(Level.class);
+        when(level.hasChunkAt(any())).thenReturn(true);
+        when(level.getBlockState(any())).thenReturn(stone);
+        when(level.getBlockState(ore)).thenReturn(coal);
+
+        var candidates = new java.util.HashMap<net.minecraft.world.level.block.Block,
+            java.util.Set<BlockPos>>();
+        VisionScanner.collectCandidates(level, center, 8, 2, candidates);
+
+        assertTrue(candidates.getOrDefault(Blocks.COAL_ORE, Set.of()).contains(ore),
+            "a coarse horizontal step must never skip a Y layer (cliff-face vein blindness)");
+    }
+
+    @Test
+    void budgetGuardFitsXZAreaTimesFullY() {
+        // radius 32, configured step 2: old cube estimate (65^3 = 274k) doubled
+        // the step to 4; the XZ-area x full-Y estimate (33^2 * 65 = 71k) fits.
+        assertEquals(2, VisionScanner.effectiveStep(32, 2),
+            "radius 32 must keep step 2 now that the Y axis is always scanned fully");
+        // A huge radius still doubles until the estimate fits the 100k budget.
+        assertTrue(VisionScanner.effectiveStep(64, 1) >= 2,
+            "the budget guard still grows the step when the estimate exceeds 100k");
     }
 }
