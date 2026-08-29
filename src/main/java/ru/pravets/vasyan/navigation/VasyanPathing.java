@@ -177,7 +177,18 @@ public final class VasyanPathing {
                     switch (decision) {
                         case DESCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.DESCEND);
                         case ASCEND_STEP -> verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND);
-                        case DIG_THROUGH -> digThrough(vasyan, monitor, diggable);
+                        case DIG_THROUGH -> {
+                            // Level goal + boxed-in bot = a pit, not a wall: the
+                            // vertical ladder keys off the goal's Y and never fires
+                            // here, so climb out to the local surface instead of
+                            // digging a tunnel (Bob's coal-pit bug).
+                            BlockPos escape = pitEscapeAnchor(vasyan, monitor);
+                            if (escape != null) {
+                                verticalStep(vasyan, monitor, VerticalTraversalPlanner.Mode.ASCEND, escape);
+                            } else {
+                                digThrough(vasyan, monitor, diggable);
+                            }
+                        }
                         case PLACE_SCAFFOLD -> placeScaffold(vasyan, monitor);
                         case HOP_TELEPORT -> hopTeleport(vasyan, monitor);
                         default -> {}
@@ -204,10 +215,18 @@ public final class VasyanPathing {
      */
     private static void verticalStep(VasyanEntity vasyan, PathMonitor monitor,
                                      VerticalTraversalPlanner.Mode mode) {
+        verticalStep(vasyan, monitor, mode, VasyanGoal.anchor(monitor.goal(), vasyan.blockPosition()));
+    }
+
+    /**
+     * DESCEND_STEP / ASCEND_STEP with an explicit anchor (pit escape aims at the
+     * local surface rather than the level route goal).
+     */
+    private static void verticalStep(VasyanEntity vasyan, PathMonitor monitor,
+                                     VerticalTraversalPlanner.Mode mode, BlockPos anchor) {
         String name = vasyan.getVasyanName();
         Level level = vasyan.level();
         BlockPos botPos = vasyan.blockPosition();
-        BlockPos anchor = VasyanGoal.anchor(monitor.goal(), botPos);
         // Preparation and movement must happen in one monitor decision. If we
         // only clear/place and wait for the next stall, PathMonitor would treat
         // the successful preparation as a completed vertical step and advance
@@ -372,6 +391,46 @@ public final class VasyanPathing {
         }
         vasyan.getNavigation().moveTo(target.getX() + CENTER_OFFSET, target.getY(),
             target.getZ() + CENTER_OFFSET, speed);
+    }
+
+    /**
+     * Pit escape for LEVEL goals: the vertical ladder keys off the goal's Y, so a
+     * bot boxed into a depression with a same-height goal never gets ASCEND_STEP
+     * and digs a tunnel instead. Returns the local-surface anchor to climb to, or
+     * null when this is a plain wall (DIG_THROUGH's job) or escape is impossible.
+     */
+    private static @Nullable BlockPos pitEscapeAnchor(VasyanEntity vasyan, PathMonitor monitor) {
+        Level level = vasyan.level();
+        BlockPos botPos = vasyan.blockPosition();
+        BlockPos anchor = VasyanGoal.anchor(monitor.goal(), botPos);
+        if (anchor.getY() != botPos.getY() || !monitor.verticalRecovery().enabled()) {
+            return null; // a real Y goal is the vertical ladder's job
+        }
+        if (!isBoxedIn(level, botPos)) {
+            return null; // a single wall ahead is DIG_THROUGH's job (scenario C)
+        }
+        if (findScaffoldStack(vasyan) == null) {
+            return null; // nothing to pillar with: fall back to digging
+        }
+        BlockPos surface = level.getHeightmapPos(
+            net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, botPos);
+        int climb = surface.getY() - botPos.getY();
+        if (climb <= 0 || climb > monitor.verticalRecovery().maxDistance()) {
+            return null; // already at the surface, or in a deep cave: no honest escape
+        }
+        return new BlockPos(botPos.getX(), surface.getY(), botPos.getZ());
+    }
+
+    /** Whether at least 3 of the 4 horizontal walking exits from {@code botPos} are blocked. */
+    static boolean isBoxedIn(Level level, BlockPos botPos) {
+        int blocked = 0;
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            BlockPos feet = botPos.relative(dir);
+            if (!isOpen(level, feet) || !isOpen(level, feet.above())) {
+                blocked++;
+            }
+        }
+        return blocked >= 3;
     }
 
     /**

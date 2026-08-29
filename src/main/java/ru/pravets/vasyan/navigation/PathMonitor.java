@@ -326,6 +326,11 @@ public final class PathMonitor {
         return step != Step.LADDER_ENTRY || navDoneReplansUsed > 0;
     }
 
+    /** Vertical recovery settings carried by this monitor (pit-escape probing reads them). */
+    public VerticalRecoverySettings verticalRecovery() {
+        return verticalRecovery;
+    }
+
     private Decision handleNavDoneOutsideGoal(boolean canDig, boolean canPlace, BlockPos botPos) {
         // A finished path that ends off-goal replans at most once per stall
         // window: without this pacing the navDone branch burns all
