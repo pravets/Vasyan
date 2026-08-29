@@ -379,6 +379,13 @@ public final class VasyanPathing {
                 FluidState fluid = level.getBlockState(pos).getFluidState();
                 return fluid.is(Fluids.LAVA) || fluid.is(Fluids.FLOWING_LAVA);
             }
+
+            @Override
+            public boolean isFlowingWater(BlockPos pos) {
+                FluidState fluid = level.getBlockState(pos).getFluidState();
+                return fluid.is(Fluids.FLOWING_WATER)
+                    || (fluid.is(Fluids.WATER) && !fluid.isSource());
+            }
         };
     }
 
@@ -408,6 +415,11 @@ public final class VasyanPathing {
             @Override
             public boolean isUnsafeLiquid(BlockPos pos) {
                 return delegate.isUnsafeLiquid(pos);
+            }
+
+            @Override
+            public boolean isFlowingWater(BlockPos pos) {
+                return delegate.isFlowingWater(pos);
             }
         };
     }

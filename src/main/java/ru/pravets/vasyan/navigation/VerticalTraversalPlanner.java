@@ -46,8 +46,15 @@ public final class VerticalTraversalPlanner {
         /** Whether this cell may be cleared by digging. */
         boolean isBreakable(BlockPos pos);
 
-        /** Whether this cell is an unsafe liquid (lava). */
+        /** Whether the cell holds a dangerous liquid (lava). */
         boolean isUnsafeLiquid(BlockPos pos);
+
+        /** Whether the cell holds FLOWING water (a waterfall column): the bot cannot
+         *  stand or carve a staircase step in it - ascending into it just loses the
+         *  fight against the current. Default false keeps existing test fixtures. */
+        default boolean isFlowingWater(BlockPos pos) {
+            return false;
+        }
     }
 
     /**
@@ -99,6 +106,13 @@ public final class VerticalTraversalPlanner {
         BlockPos support = standPos.below();
 
         if (world.isUnsafeLiquid(standPos) || world.isUnsafeLiquid(head) || world.isUnsafeLiquid(support)) {
+            return null;
+        }
+
+        // A waterfall column is not a staircase: you cannot stand in flowing
+        // water, so ascending into it just stalls the climb against the current.
+        if (mode == Mode.ASCEND
+                && (world.isFlowingWater(standPos) || world.isFlowingWater(head))) {
             return null;
         }
 
