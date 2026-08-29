@@ -412,7 +412,9 @@ public final class VasyanPathing {
         };
     }
 
-    /** Clears one breakable block selected by vertical recovery. */
+    /** Clears one breakable block selected by vertical recovery. Drops are left for
+     *  the bot's vacuum pickup: pocketed dirt/logs become scaffold material, so
+     *  carving steps self-supplies the pillar blocks for the climb out. */
     private static boolean clearVerticalStep(VasyanEntity vasyan, VerticalTraversalPlanner.Step planned) {
         String name = vasyan.getVasyanName();
         Level level = vasyan.level();
@@ -423,7 +425,7 @@ public final class VasyanPathing {
             return false;
         }
         vasyan.swing(InteractionHand.MAIN_HAND, true);
-        if (!level.destroyBlock(planned.target(), false)) {
+        if (!level.destroyBlock(planned.target(), true)) {
             VasyanMod.LOGGER.warn("Vasyan '{}': {} failed to clear {} at {}",
                 name, planned.mode(), state.getBlock().getName().getString(),
                 planned.target().toShortString());
@@ -520,13 +522,20 @@ public final class VasyanPathing {
         if (!isBoxedIn(level, botPos)) {
             return null; // a single wall ahead is DIG_THROUGH's job (scenario C)
         }
-        BlockPos surface = level.getHeightmapPos(
-            net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, botPos);
-        int climb = surface.getY() - botPos.getY();
-        if (climb <= 0 || climb > monitor.verticalRecovery().maxDistance()) {
-            return null; // already at the surface, or in a deep cave: no honest escape
+        // The bot's own column is dug out, so its heightmap is the hole floor;
+        // the rim to climb to is the HIGHEST neighbor column (a 2-deep trench
+        // has walls on 2 sides but a rim right there).
+        int rimY = botPos.getY();
+        for (Direction dir : Direction.Plane.HORIZONTAL) {
+            rimY = Math.max(rimY, level.getHeightmapPos(
+                net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+                botPos.relative(dir)).getY());
         }
-        BlockPos escapeAnchor = new BlockPos(botPos.getX(), surface.getY(), botPos.getZ());
+        int climb = rimY - botPos.getY();
+        if (climb <= 0 || climb > monitor.verticalRecovery().maxDistance()) {
+            return null; // flat ground, or a deep cave: no honest escape
+        }
+        BlockPos escapeAnchor = new BlockPos(botPos.getX(), rimY, botPos.getZ());
         // A boxed bot can climb out by breaking a step into the pit wall (CLEAR/MOVE)
         // even with an empty inventory. Only refuse the escape when the ascent needs
         // placed support and no scaffold blocks are available.
@@ -544,7 +553,7 @@ public final class VasyanPathing {
             .orElse(false);
     }
 
-    /** Whether at least 3 of the 4 horizontal walking exits from {@code botPos} are blocked. */
+    /** Whether at least 2 of the 4 horizontal walking exits from {@code botPos} are blocked. */
     static boolean isBoxedIn(Level level, BlockPos botPos) {
         int blocked = 0;
         for (Direction dir : Direction.Plane.HORIZONTAL) {
@@ -553,7 +562,9 @@ public final class VasyanPathing {
                 blocked++;
             }
         }
-        return blocked >= 3;
+        // 1 blocked side = a wall ahead (DIG_THROUGH's job, scenario C);
+        // 2+ blocked sides = a trench/pit corner: climb the rim instead.
+        return blocked >= 2;
     }
 
     /**
@@ -581,7 +592,9 @@ public final class VasyanPathing {
                 continue;
             }
             BlockState state = level.getBlockState(cell);
-            if (!level.destroyBlock(cell, false)) {
+            // Drops stay for the vacuum pickup: tunnelled dirt/logs come back as
+            // scaffold material for the climb out of whatever we dig into.
+            if (!level.destroyBlock(cell, true)) {
                 VasyanMod.LOGGER.warn("Vasyan '{}': failed to break {} at {}", name,
                     state.getBlock().getName().getString(), cell.toShortString());
                 continue;

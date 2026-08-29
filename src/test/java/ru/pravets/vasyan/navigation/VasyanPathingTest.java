@@ -59,6 +59,23 @@ class VasyanPathingTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void botInTwoBlockDeepTrenchIsBoxedIn() {
+        BlockPos bot = new BlockPos(0, 64, 0);
+        BlockState stone = solid();
+        BlockState air = open();
+        Level level = mock(Level.class);
+        // North and south are trench walls (feet + head blocked); east/west open.
+        when(level.getBlockState(any())).thenReturn(air);
+        for (BlockPos side : new BlockPos[]{bot.north(), bot.south()}) {
+            when(level.getBlockState(side)).thenReturn(stone);
+            when(level.getBlockState(side.above())).thenReturn(stone);
+        }
+
+        assertTrue(VasyanPathing.isBoxedIn(level, bot),
+            "a 2-deep trench must climb the rim, not tunnel forward (Alex' trench)");
+    }
+
+    @Test
     void pitEscapeCanUseClearStepWhenNoScaffold() {
         BlockPos bot = new BlockPos(0, 64, 0);
         BlockPos anchor = new BlockPos(0, 65, 0);
