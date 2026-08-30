@@ -11,7 +11,9 @@ import ru.pravets.vasyan.navigation.PathMonitor;
 import ru.pravets.vasyan.navigation.VasyanGoal;
 import ru.pravets.vasyan.navigation.VasyanPathing;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -343,12 +345,13 @@ public class GatherResourceAction extends BaseAction {
         all.addAll(visible);
         all.addAll(nearby);
         long nowMem = vasyan.level().getGameTime();
+        ResourceKey<Level> dimension = vasyan.level().dimension();
         int memoryRadius = VasyanConfig.GATHER_MEMORY_RADIUS.get();
         BlockPos center = vasyan.blockPosition();
         BlockPos mine = all.stream()
             .filter(p -> !unreachableTargets.contains(p))
             .filter(p -> !isInVerticalTrap(p))
-            .filter(p -> !GlobalResourceMemory.isUnreachable(memoryKey, p, nowMem, memoryRadius))
+            .filter(p -> !GlobalResourceMemory.isUnreachable(memoryKey, dimension, p, nowMem, memoryRadius))
             // swamp: never dive for a LOG (drop loss, air). Ores are exempt:
             // the standable-approach gate already guarantees the bot mines
             // from dry land, and ore above a water channel is a legit target
@@ -374,7 +377,7 @@ public class GatherResourceAction extends BaseAction {
         if (routeTarget != null && routeGoal != null
                 && (mineTarget == null || !routeTarget.equals(mineTarget))
                 && routeGoal.hasReached(vasyan.blockPosition())) {
-            GlobalResourceMemory.rememberEmptyStation(memoryKey, routeTarget, nowMem);
+            GlobalResourceMemory.rememberEmptyStation(memoryKey, dimension, routeTarget, nowMem);
         }
 
         // A target existed but all were unreachable by land (swamp islands):
@@ -423,7 +426,7 @@ public class GatherResourceAction extends BaseAction {
             VasyanConfig.GATHER_RING_SPACING.get(), VasyanConfig.GATHER_STATIONS_PER_RING.get());
         while (ResourceSearchPlanner.hasNext(searchState, VasyanConfig.GATHER_SEARCH_RADIUS.get(),
                 VasyanConfig.GATHER_RING_SPACING.get())
-            && GlobalResourceMemory.isEmptyStation(memoryKey, station, nowMem, memoryRadius)) {
+            && GlobalResourceMemory.isEmptyStation(memoryKey, dimension, station, nowMem, memoryRadius)) {
             searchState = ResourceSearchPlanner.next(searchState, VasyanConfig.GATHER_STATIONS_PER_RING.get());
             station = ResourceSearchPlanner.stationFor(searchState,
                 VasyanConfig.GATHER_RING_SPACING.get(), VasyanConfig.GATHER_STATIONS_PER_RING.get());
@@ -541,9 +544,11 @@ public class GatherResourceAction extends BaseAction {
      */
     private void skipCurrentRouteTarget() {
         vasyan.getNavigation().stop();
+        ResourceKey<Level> dimension = vasyan.level().dimension();
+        long now = vasyan.level().getGameTime();
         if (mineTarget != null && routeTarget.equals(mineTarget)) {
             rememberUnreachable(mineTarget);
-            GlobalResourceMemory.rememberUnreachable(memoryKey, mineTarget, vasyan.level().getGameTime());
+            GlobalResourceMemory.rememberUnreachable(memoryKey, dimension, mineTarget, now);
             rememberVerticalTrap(mineTarget);
             debugLog("ROUTING", "target unreachable, skipping " + mineTarget);
             mineTarget = null;
@@ -560,7 +565,7 @@ public class GatherResourceAction extends BaseAction {
             }
         } else {
             debugLog("ROUTING", "station unreachable, next station");
-            GlobalResourceMemory.rememberEmptyStation(memoryKey, routeTarget, vasyan.level().getGameTime());
+            GlobalResourceMemory.rememberEmptyStation(memoryKey, dimension, routeTarget, now);
         }
         veinTargets.clear();
         phase = Phase.SEARCH; // next station / other candidate
@@ -603,7 +608,8 @@ public class GatherResourceAction extends BaseAction {
                 ticksOnMine = 0;
                 vasyan.getNavigation().stop();
                 rememberUnreachable(mineTarget);
-                GlobalResourceMemory.rememberUnreachable(memoryKey, mineTarget, vasyan.level().getGameTime());
+                GlobalResourceMemory.rememberUnreachable(memoryKey, vasyan.level().dimension(), mineTarget,
+                    vasyan.level().getGameTime());
                 rememberVerticalTrap(mineTarget);
                 if (fellMode && !fellGatheringMaterial) {
                     // Unreachable cleanup branch: drop it from the CURRENT
