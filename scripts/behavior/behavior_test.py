@@ -718,7 +718,10 @@ def test_pathfinding_scenarios(workdir, jar_path):
         hidden_offset = os.path.getsize(log_path)
         gather_resp = rcon.command("vasyan tell Navigator gather 1 coal")
         print(f"  hidden-coal gather response: {gather_resp!r}")
-        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "hidden coal gather action", offset=hidden_offset):
+        # The action may finish before the periodic 100-tick status log is
+        # emitted, so wait for the immediate creation log instead of the
+        # throttled "Ticking action" line.
+        if not wait_for(log_path, r"Created action: GatherResourceAction", 45, "hidden coal gather action", offset=hidden_offset):
             return 1
         time.sleep(20)
         rcon.command("vasyan tell Navigator stop")
@@ -811,7 +814,9 @@ def test_pathfinding_scenarios(workdir, jar_path):
         corner_offset = os.path.getsize(log_path)
         gather_resp = rcon.command("vasyan tell Navigator gather 1 coal")
         print(f"  corner-coal gather response: {gather_resp!r}")
-        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "corner coal gather action", offset=corner_offset):
+        # Wait for the immediate action creation log, because the bot can
+        # find and mine the corner coal in under one status-report interval.
+        if not wait_for(log_path, r"Created action: GatherResourceAction", 45, "corner coal gather action", offset=corner_offset):
             return 1
         corner_deadline = time.time() + 240
         corner_mined = False
