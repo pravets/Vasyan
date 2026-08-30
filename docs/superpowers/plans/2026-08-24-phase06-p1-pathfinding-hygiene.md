@@ -4,7 +4,7 @@
 
 **Goal:** Навигация Vasyan перестаёт застревать молча: единый `PathMonitor` вместо пяти копий stall-логики, иерархия целей `VasyanGoal`, бюджеты планирования — сервер не фризится, бот доходит туда, куда раньше не доходил.
 
-**Architecture:** Три новых чистых класса (`VasyanGoal`, `PathMonitor`, `PathBudgets`) + один серверный (`VasyanPathNavigator`-обёртка над `AmphibiousPathNavigation`). Вся геометрия/решения — в pure-классах без обращения к world (unit-тесты в plain JUnit); классы, трогающие level, изолированы и покрыты bootstrap-тестами. Экшены (`GatherResourceAction`, `CombatAction`, `FollowPlayerAction`, `PathfindAction`) переключаются на общий монитор, свои копии stall-детекции удаляются.
+**Architecture:** Три новых чистых класса (`VasyanGoal`, `PathMonitor`, `PathBudgets`) + один серверный (`VasyanPathing`-обёртка над `AmphibiousPathNavigation`). Вся геометрия/решения — в pure-классах без обращения к world (unit-тесты в plain JUnit); классы, трогающие level, изолированы и покрыты bootstrap-тестами. Экшены (`GatherResourceAction`, `CombatAction`, `FollowPlayerAction`, `PathfindAction`) переключаются на общий монитор, свои копии stall-детекции удаляются.
 
 **Tech Stack:** Java 17, Minecraft 1.20.1 Forge 47.2.0 official mappings, JUnit 5 (+ `McTestBootstrap` для registry), RCON behavior-tests.
 
@@ -197,7 +197,7 @@ public final class VasyanPathing {
 
 ## Risks / Open Questions
 
-1. **Amphibious navigation vs GoalAdjacent**: водная цель может стоять «вплотную» иначе (плавание). Принято: adjacency считается в 3D-манхэттене, плавающие позиции валидны.
+1. **Amphibious navigation vs GoalAdjacent**: `GoalAdjacent` = side-only (`|dx|+|dz|==1 && dy==0`); позиция над блоком не считается соседней. Плавающие позиции достигаются через `GoalNear`/`GoalXZ`/`GoalY`, а не через adjacency.
 2. **DIG_THROUGH в P1** — минимальный: ломаем только блок прямо по курсу, без выбора лучшего инструмента (это P2). Риск испортить чужие постройки — mitigated: только если путь заблокирован И replan исчерпан И блок не из blacklist (вода/обсидиан/bedrock).
 3. **HOP_TELEPORT частота**: чтобы бот не стал «телепортером» — жёсткий лимит: не чаще 1 раза на экшен + всегда WARN в лог.
 4. **Behavior-тесты flaky** (реальный мир, тайминги): таймауты щедрые (60с), ассерты на «дошёл/не дошёл», не на точный путь.

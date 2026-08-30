@@ -486,10 +486,9 @@ def test_pathfinding_scenarios(workdir, jar_path):
         PLAT_Y = 200          # floor level (bot stands on 200 -> feet in 201? No: blocks at y=200 are the floor surface; entity stands at y=201)
         wx, wz = bx + 120, bz  # arena origin, far enough not to collide with earlier worlds
         # Force-load EVERY chunk the platform spans, otherwise the bot does not
-        # tick in far chunks and pathfind never starts.
-        for cx4 in range((wx - 4) >> 4, ((wx + 40) >> 4) + 1):
-            rcon.command(f"forceload add {cx4} {wz >> 4}")
-            rcon.command(f"forceload add {cx4} {(wz >> 4) + 1}")
+        # tick in far chunks and pathfind never starts. /forceload add expects
+        # block coordinates; Minecraft converts them to chunk coordinates itself.
+        rcon.command(f"forceload add {wx - 4} {wz - 14} {wx + 40} {wz + 14}")
         rcon.command(f"fill {wx - 4} {PLAT_Y} {wz - 14} {wx + 40} {PLAT_Y} {wz + 14} minecraft:smooth_stone")
         rcon.command(f"fill {wx - 4} {PLAT_Y + 1} {wz - 14} {wx + 40} {PLAT_Y + 6} {wz + 14} minecraft:air")
         # Walls so nobody wanders off the platform edge accidentally.

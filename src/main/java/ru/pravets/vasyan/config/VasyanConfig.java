@@ -296,14 +296,23 @@ public class VasyanConfig {
             "searchRadius limits how far around the bot a route may be searched.")
             .push("navigation");
 
+        /**
+         * Total think budget in milliseconds for one pathfinding attempt (planning only).
+         */
         NAV_THINK_TIMEOUT_MS = builder
             .comment("Total time budget in milliseconds for one pathfinding attempt")
             .defineInRange("thinkTimeoutMs", 2000, 250, 30000);
 
+        /**
+         * Per-tick slice in milliseconds the pathfinder may run before yielding.
+         */
         NAV_TICK_TIMEOUT_MS = builder
             .comment("Per-tick slice in milliseconds the pathfinder may run before yielding")
             .defineInRange("tickTimeoutMs", 10, 1, 50);
 
+        /**
+         * Maximum distance in blocks to search for a route around the bot.
+         */
         NAV_SEARCH_RADIUS = builder
             .comment("Maximum distance in blocks to search for a route")
             .defineInRange("searchRadius", 64, 16, 256);

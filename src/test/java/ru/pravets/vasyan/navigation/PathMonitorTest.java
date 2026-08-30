@@ -408,7 +408,7 @@ class PathMonitorTest {
     }
 
     @Test
-    void movingBotIsNeverStalled_NoEscalationNoMatterHowLong() {
+    void movingBotIsNeverStalledNoEscalationNoMatterHowLong() {
         var m = monitor(40, 3);
 
         // A bot that keeps advancing must never accumulate a stall window: over
@@ -423,7 +423,7 @@ class PathMonitorTest {
     }
 
     @Test
-    void stationaryBotStillStalls_AfterMovingWindowCloses() {
+    void stationaryBotStillStallsAfterMovingWindowCloses() {
         var m = monitor(40, 3);
 
         // Advance monotonically (progress), then stop: stall accumulation starts
@@ -441,7 +441,7 @@ class PathMonitorTest {
     }
 
     @Test
-    void verticalOnlyBobbingDoesNotCountAsProgress_NavDoneStillReplans() {
+    void verticalOnlyBobbingDoesNotCountAsProgressNavDoneStillReplans() {
         var m = monitor(40, 3);
 
         // A bot bobbing up/down in water (Y cycling between two cells) is NOT

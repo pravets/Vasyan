@@ -3,6 +3,7 @@ package ru.pravets.vasyan.navigation;
 import net.minecraft.core.BlockPos;
 
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -16,9 +17,15 @@ public record GoalCompositeAny(VasyanGoal[] goals) implements VasyanGoal {
 
     /** Defensively copies on construction and again on access so callers can never mutate. */
     public GoalCompositeAny {
+        Objects.requireNonNull(goals, "goals");
         goals = goals.clone();
         if (goals.length == 0) {
             throw new IllegalArgumentException("any(...) requires at least one goal");
+        }
+        for (VasyanGoal goal : goals) {
+            if (goal == null) {
+                throw new IllegalArgumentException("goals must not contain null");
+            }
         }
     }
 
