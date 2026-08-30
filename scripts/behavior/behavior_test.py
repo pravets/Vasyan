@@ -517,6 +517,12 @@ def test_pathfinding_scenarios(workdir, jar_path):
             # pre-trigger answers '<name> идёт к ...', the LLM path answers
             # with a fallback plan or empty string.
             pretrigger_fired = "идёт к" in (resp or "")
+            # The deterministic RCON pre-trigger must actually fire: if it does not,
+            # the LLM fallback may still carry the bot to the goal and the scenario
+            # would pass without ever exercising the go-to route under test.
+            if not pretrigger_fired:
+                raise AssertionError(
+                    f"Direct go-to command did not start for ({tx}, {ty}, {tz}): {resp!r}")
             deadline = time.time() + timeout_s
             reached = False
             while time.time() < deadline:

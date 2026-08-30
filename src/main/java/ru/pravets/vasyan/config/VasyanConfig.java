@@ -123,8 +123,11 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_STATIONS_PER_RING;
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_TTL_TICKS;
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_RADIUS;
+    /** Total time budget (ms) for one pathfinding attempt (planning only; once moving, the monitor's ladder governs). */
     public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
+    /** Per-tick pathfinding slice (ms) the pathfinder may run before yielding. */
     public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
+    /** Maximum distance in blocks around the bot a route may be searched. */
     public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
     public static final ForgeConfigSpec.BooleanValue NAV_HOP_TELEPORT_ENABLED;
     public static final ForgeConfigSpec.BooleanValue NAV_VERTICAL_RECOVERY_ENABLED;
@@ -400,7 +403,9 @@ public class VasyanConfig {
 
     /**
      * Per-provider override triple for a providerChain member: apiKey, model,
-     * baseUrl. Empty values mean "use preset default or shared llm.* value".
+     * baseUrl. An empty {@code model} or {@code baseUrl} falls back to the provider's
+     * preset default; an empty {@code apiKey} means NO key (there is no shared
+     * llm.apiKey - key-requiring providers must set it here).
      */
     public record MemberSection(
         ForgeConfigSpec.ConfigValue<String> apiKey,
@@ -411,11 +416,11 @@ public class VasyanConfig {
             // Each member gets its own TOML subsection: [llm.members.<id>].
             builder.push(providerId);
             MemberSection section = new MemberSection(
-                builder.comment("API key override for '" + providerId + "'. Empty = shared llm.apiKey (or none).")
+                builder.comment("API key override for '" + providerId + "'. Empty = no key; key-requiring providers must set it here.")
                     .define("apiKey", ""),
-                builder.comment("Model override for '" + providerId + "'. Empty = preset default or shared llm.model.")
+                builder.comment("Model override for '" + providerId + "'. Empty = this provider's preset default model.")
                     .define("model", ""),
-                builder.comment("Base URL override for '" + providerId + "'. Empty = preset default or shared llm.baseUrl.")
+                builder.comment("Base URL override for '" + providerId + "'. Empty = this provider's preset default base URL.")
                     .define("baseUrl", ""));
             builder.pop();
             return section;
