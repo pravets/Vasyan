@@ -19,9 +19,6 @@ public record PathBudgets(long thinkDeadlineNano, long tickDeadlineNano, int sea
                           long tickTimeoutNanos) {
 
     public PathBudgets {
-        if (thinkDeadlineNano <= 0) {
-            throw new IllegalArgumentException("thinkDeadlineNano must be > 0, got " + thinkDeadlineNano);
-        }
         if (tickTimeoutNanos <= 0) {
             throw new IllegalArgumentException("tickTimeoutNanos must be > 0, got " + tickTimeoutNanos);
         }

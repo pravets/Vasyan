@@ -47,6 +47,18 @@ class PathBudgetsTest {
     }
 
     @Test
+    void negativeNanoTimeStartDoesNotThrowAndExpiryIsCorrect() {
+        long now = -9_000_000_000L;
+        var budgets = PathBudgets.start(now, 2000L, 10L, 64);
+
+        long thinkDeadline = now + 2000L * MS;
+        assertFalse(budgets.thinkExpired(now));
+        assertFalse(budgets.thinkExpired(thinkDeadline - 1L), "one nanosecond before deadline is not expired");
+        assertTrue(budgets.thinkExpired(thinkDeadline), "deadline instant counts as expired");
+        assertTrue(budgets.thinkExpired(thinkDeadline + 1L), "one nanosecond after deadline is expired");
+    }
+
+    @Test
     void nextTickRollsOnlyTheTickDeadline() {
         long now = 7_000L * MS;
         var budgets = PathBudgets.start(now, 2_000L, 10L, 64);
