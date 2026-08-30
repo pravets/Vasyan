@@ -101,6 +101,9 @@ public class GatherResourceAction extends BaseAction {
     private ResourceSearchPlanner.SearchState searchState;
     private BlockPos routeTarget;
     private BlockPos mineTarget;
+    /** Last block routed to as a mine target. Kept after mining completes so we do not
+     *  accidentally mark an already-mined block as an empty look-out station. */
+    private BlockPos lastMineTarget;
     private int ticksOnMine;
     private String memoryKey;
     /**
@@ -182,6 +185,7 @@ public class GatherResourceAction extends BaseAction {
         routeGoal = null;
         routeMonitor = null;
         routeBudgets = null;
+        lastMineTarget = null;
         fellMode = false;
         fellGatheringMaterial = false;
         fellHeight = 0;
@@ -328,7 +332,7 @@ public class GatherResourceAction extends BaseAction {
         List<BlockPos> visible = anyLogMode
             ? VisionScanner.findVisibleAnyLog(vasyan)
             : VisionScanner.findVisible(vasyan, miningBlocks);
-        boolean logTarget = anyLogMode
+        boolean targetIsLog = anyLogMode
             || (targetBlock != null && targetBlock.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS));
 
         // Logs: brute-force no-LOS scan (canopies hide trunks). Ores: the same
@@ -336,10 +340,10 @@ public class GatherResourceAction extends BaseAction {
         // approach cell - anti-xray stays intact (buried ore is never
         // returned), while an exposed coal face just around a terrain lip is
         // found even though the eye ray from the bot clips the ground.
-        List<BlockPos> nearby = allowsNoLosNearbyScan(logTarget)
+        List<BlockPos> nearby = allowsNoLosNearbyScan(targetIsLog)
             ? VisionScanner.findNearbyBlocks(vasyan, NEARBY_SCAN_RADIUS, miningBlocks)
             : VisionScanner.findNearbyExposedBlocks(vasyan, NEARBY_SCAN_RADIUS, miningBlocks);
-        if (logTarget) {
+        if (targetIsLog) {
             // lone logs of player buildings are not trees
             nearby = nearby.stream().filter(this::isTreeLog).toList();
         }
@@ -350,35 +354,36 @@ public class GatherResourceAction extends BaseAction {
         long nowMem = vasyan.level().getGameTime();
         ResourceKey<Level> dimension = vasyan.level().dimension();
         int memoryRadius = VasyanConfig.GATHER_MEMORY_RADIUS.get();
-        BlockPos center = vasyan.blockPosition();
         BlockPos mine = all.stream()
             .filter(p -> !unreachableTargets.contains(p))
             .filter(p -> !isInVerticalTrap(p))
             .filter(p -> !GlobalResourceMemory.isUnreachable(memoryKey, dimension, p, nowMem, memoryRadius))
             // swamp: never dive for a LOG (drop loss, air). Ores are exempt:
-            // the standable-approach gate already guarantees the bot mines
-            // from dry land, and ore above a water channel is a legit target
+            // the nearby-exposed scan already guarantees a standable solid
+            // approach cell, and ore above a water channel is a legit target
             // (scenario J regression: corner coal sat above the river and was
             // filtered out forever).
-            .filter(p -> !logTarget || !isUnderwaterTarget(p))
+            .filter(p -> !targetIsLog || !isUnderwaterTarget(p))
             .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)))
             .orElse(null);
         if (mine != null) {
             if (!visible.contains(mine)) {
                 debugLog("SEARCH", "nearby target at " + mine
-                    + (logTarget ? " (behind foliage)" : " (exposed face around the corner)"));
+                    + (targetIsLog ? " (behind foliage)" : " (exposed face around the corner)"));
             }
             mineTarget = mine;
+            lastMineTarget = mine;
             routeTarget = mine;
             phase = Phase.ROUTING;
             return;
         }
 
         // If we just arrived at a look-out station and it has no targets, mark it empty
-        // before picking the next one. Do NOT mark a mine target or a station we have
-        // not reached yet.
+        // before picking the next one. Do NOT mark a station we have not reached yet,
+        // and do NOT mark a block that was just mined (it is gone, not an empty station).
         if (routeTarget != null && routeGoal != null
                 && (mineTarget == null || !routeTarget.equals(mineTarget))
+                && (lastMineTarget == null || !routeTarget.equals(lastMineTarget))
                 && routeGoal.hasReached(vasyan.blockPosition())) {
             GlobalResourceMemory.rememberEmptyStation(memoryKey, dimension, routeTarget, nowMem);
         }
@@ -701,6 +706,7 @@ public class GatherResourceAction extends BaseAction {
         // No gatheredCount++ here: the quota counts the PICKUP fact
         // (inventory delta, updated in onTick), not the break fact.
         BlockPos mined = mineTarget;
+        lastMineTarget = mined;
         debugLog("MINE", resourceLabel() + " at " + mined
             + " (" + gatheredCount + "/" + targetQuantity + ")");
 

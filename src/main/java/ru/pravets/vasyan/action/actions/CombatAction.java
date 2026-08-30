@@ -112,13 +112,8 @@ public class CombatAction extends BaseAction {
                 ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
                 ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
                 ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
-            boolean wasInvulnerable = vasyan.isInvulnerable();
             VasyanPathing.replan(vasyan, routeMonitor);
-            // replan() calls setFlying(false), which clears building-invulnerability;
-            // restore it so combat keeps protection across a re-route.
-            if (wasInvulnerable) {
-                vasyan.setInvulnerableBuilding(true);
-            }
+            // steerTo() preserves an active building-invulnerability flag across moveTo/replan.
         }
 
         if (routeMonitor != null && routeBudgets != null) {
@@ -160,14 +155,9 @@ public class CombatAction extends BaseAction {
             ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
-        boolean wasInvulnerable = vasyan.isInvulnerable();
         routeMonitor = VasyanPathing.moveTo(vasyan, VasyanGoal.near(targetBlock, 1),
             routeBudgets, COMBAT_NAV_SPEED);
-        // moveTo() calls setFlying(false), which clears the building-invulnerability
-        // flag as a side effect; combat must keep it while engaging a target.
-        if (wasInvulnerable) {
-            vasyan.setInvulnerableBuilding(true);
-        }
+        // steerTo() preserves an active building-invulnerability flag across moveTo/replan.
     }
 
     @Override

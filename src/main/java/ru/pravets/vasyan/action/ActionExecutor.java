@@ -298,6 +298,7 @@ public class ActionExecutor {
         taskQueue.clear();
         taskQueue.add(task);
         currentGoal = task.getAction() + " (direct command)";
+        vasyan.getMemory().setCurrentGoal(currentGoal);
         VasyanMod.LOGGER.info("Vasyan '{}' queued direct task: {}", vasyan.getVasyanName(), task);
     }
     

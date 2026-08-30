@@ -140,6 +140,12 @@ public final class ChatCommandParser {
         return STAY_WORDS.contains(firstWord);
     }
 
+    /** Minimum and maximum Y coordinate for a 1.20.1 overworld position. */
+    private static final int MIN_WORLD_Y = -64;
+    private static final int MAX_WORLD_Y = 319;
+    /** Maximum absolute horizontal coordinate accepted by Minecraft. */
+    private static final int MAX_HORIZONTAL_COORD = 30_000_000;
+
     /**
      * Parses a deterministic "go to X Y Z" command ("иди к 100 64 -200",
      * "go to 0 64 0"). Returns {x, y, z} or null when the command is not a
@@ -159,11 +165,14 @@ public final class ChatCommandParser {
             java.util.regex.Matcher m = GOTO_COORDS.matcher(rest);
             if (m.matches()) {
                 try {
-                    return new int[] {
-                        Integer.parseInt(m.group(1)),
-                        Integer.parseInt(m.group(2)),
-                        Integer.parseInt(m.group(3))
-                    };
+                    int x = Integer.parseInt(m.group(1));
+                    int y = Integer.parseInt(m.group(2));
+                    int z = Integer.parseInt(m.group(3));
+                    if (Math.abs(x) > MAX_HORIZONTAL_COORD || Math.abs(z) > MAX_HORIZONTAL_COORD
+                            || y < MIN_WORLD_Y || y > MAX_WORLD_Y) {
+                        return null;
+                    }
+                    return new int[] { x, y, z };
                 } catch (NumberFormatException ignored) {
                     return null; // out-of-range numbers -> not a goto
                 }

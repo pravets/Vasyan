@@ -99,6 +99,10 @@ public interface VasyanGoal {
     /**
      * Resolves the concrete anchor navigation should steer towards. Composite goals use the
      * sub-goal nearest to the bot; unknown/custom goals conservatively use the bot position.
+     *
+     * @param goal   goal whose anchor to resolve; must not be null
+     * @param botPos current bot position used for relative goals and composite selection
+     * @return the block position navigation should steer towards
      */
     static BlockPos anchor(VasyanGoal goal, BlockPos botPos) {
         if (goal instanceof GoalNear near) {

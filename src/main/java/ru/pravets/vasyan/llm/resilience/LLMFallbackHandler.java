@@ -67,8 +67,7 @@ public class LLMFallbackHandler {
         "{\"reasoning\":\"[Fallback] Idle action detected\",\"plan\":\"Stay near the player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}"
     );
 
-    // Default response when no pattern matches. Public: ProviderChainClient
-    // synthesizes the same all-dead answer without instantiating a handler.
+    // Default response when no pattern matches.
     public static final String DEFAULT_FALLBACK_RESPONSE =
         "{\"reasoning\":\"[Fallback] No pattern matched\",\"plan\":\"Stay near the player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}";
 

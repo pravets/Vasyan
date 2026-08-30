@@ -132,4 +132,24 @@ class ChatCommandParserTest {
         assertNull(ChatCommandParser.parseGoToCommand(normalize("")));
         assertNull(ChatCommandParser.parseGoToCommand(null));
     }
+
+    @Test
+    void goToCommandRejectsOutOfRangeCoordinates() {
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 30000001 64 0")),
+            "X beyond 30 000 000 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 0 64 30000001")),
+            "Z beyond 30 000 000 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to -30000001 64 0")),
+            "negative X beyond -30 000 000 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 0 -65 0")),
+            "Y below -64 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 0 320 0")),
+            "Y above 319 must be rejected");
+
+        // Exact boundaries are accepted.
+        assertArrayEquals(new int[]{30_000_000, 319, -30_000_000},
+            ChatCommandParser.parseGoToCommand(normalize("go to 30000000 319 -30000000")));
+        assertArrayEquals(new int[]{-30_000_000, -64, 30_000_000},
+            ChatCommandParser.parseGoToCommand(normalize("go to -30000000 -64 30000000")));
+    }
 }
