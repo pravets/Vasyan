@@ -12,6 +12,7 @@ import ru.pravets.vasyan.navigation.VasyanGoal;
 import ru.pravets.vasyan.navigation.VasyanPathing;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.item.BlockItem;
@@ -20,7 +21,11 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.LeavesBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -63,7 +68,7 @@ public class GatherResourceAction extends BaseAction {
     private static final int FELL_MAX_HEIGHT = 64; // world height - pillar can reach any tree top
     private static final int FELL_STALL_TICKS = 60; // no progress -> give up
     private static final int FELL_MAX_LOGS = 200; // connected logs per tree (forest guard)
-    private static final int FELL_WAIT_TICKS = 25; // vacuum pickup grace period for pillar material
+    private static final int FELL_WAIT_TICKS = 25; // grace period for inventory update after direct pickup
     private static final int UNREACHABLE_TARGETS_LIMIT = 32;
     private static final int VERTICAL_TRAP_HORIZONTAL_RADIUS = 4;
     private static final int VERTICAL_TRAP_VERTICAL_RADIUS = 6;
@@ -685,16 +690,16 @@ public class GatherResourceAction extends BaseAction {
         }
 
         // In reach: break ONLY this block (no tunneling)
-        vasyan.swing(InteractionHand.MAIN_HAND, true);
-        if (!vasyan.level().destroyBlock(mineTarget, true)) {
+        if (!mineIntoInventory(mineTarget)) {
             return; // failed to break - retry next tick
         }
         ticksOnMine = 0;
 
         if (fellGatheringMaterial) {
             // Gather enough pillar material: switch back to logs only once a
-            // usable block is actually in the inventory. The drop needs a few
-            // ticks to be vacuumed - wait instead of digging forever.
+            // usable block is actually in the inventory. The drop was already
+            // placed there directly by mineIntoInventory; wait one update
+            // cycle instead of digging forever.
             targetBlock = fellLogBlock;
             fellGatheringMaterial = false;
             boolean havePillarBlock = !FellSupport.findSolidPillarBlock(vasyan.level(),
@@ -883,6 +888,45 @@ public class GatherResourceAction extends BaseAction {
         fellPillar.clear();
     }
 
+    /**
+     * Breaks the block at {@code pos} and puts its drops directly into the
+     * Vasyan's inventory. Any overflow is spawned in the world so it can be
+     * picked up by the owner later (or by another bot if this inventory is
+     * full). Prevents nearby bots from vacuuming drops that belong to this
+     * miner. Returns {@code false} when the block was already air or could not
+     * be destroyed.
+     */
+    @SuppressWarnings("deprecation")
+    private boolean mineIntoInventory(BlockPos pos) {
+        Level level = vasyan.level();
+        BlockState state = level.getBlockState(pos);
+        if (state.isAir()) {
+            return false;
+        }
+        List<ItemStack> drops;
+        if (level instanceof ServerLevel serverLevel) {
+            BlockEntity blockEntity = level.getBlockEntity(pos);
+            LootParams.Builder builder = new LootParams.Builder(serverLevel)
+                .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(pos))
+                .withParameter(LootContextParams.TOOL, ItemStack.EMPTY)
+                .withOptionalParameter(LootContextParams.BLOCK_ENTITY, blockEntity);
+            drops = state.getDrops(builder);
+        } else {
+            drops = java.util.Collections.emptyList();
+        }
+        vasyan.swing(InteractionHand.MAIN_HAND, true);
+        if (!level.destroyBlock(pos, false)) {
+            return false;
+        }
+        for (ItemStack drop : drops) {
+            ItemStack remainder = vasyan.getInventory().addItem(drop);
+            if (!remainder.isEmpty()) {
+                Block.popResource(level, pos, remainder);
+            }
+        }
+        return true;
+    }
+
     private boolean isTargetLog(BlockPos pos) {
         return vasyan.level().getBlockState(pos).getBlock() == fellLogBlock;
     }
@@ -933,8 +977,7 @@ public class GatherResourceAction extends BaseAction {
             }
         }
         if (reachable != null) {
-            vasyan.swing(InteractionHand.MAIN_HAND, true);
-            if (vasyan.level().destroyBlock(reachable, true)) {
+            if (mineIntoInventory(reachable)) {
                 // No gatheredCount++ here either: the quota is the pickup
                 // delta, recomputed every tick in onTick
                 fellLogs.remove(reachable);
@@ -964,10 +1007,9 @@ public class GatherResourceAction extends BaseAction {
             Block block = ((BlockItem) pillarBlock.getItem()).getBlock();
             BlockState standState = vasyan.level().getBlockState(standPos);
             // Leaves (and any other block in the way) are cleared first - the
-            // canopy must not block the pillar. Drops are vacuumed.
+            // canopy must not block the pillar. Drops go to the inventory.
             if (!standState.canBeReplaced()) {
-                vasyan.swing(InteractionHand.MAIN_HAND, true);
-                vasyan.level().destroyBlock(standPos, true);
+                mineIntoInventory(standPos);
                 debugLog("FELL", "cleared " + standState.getBlock().getName().getString() + " at " + standPos);
                 return; // retry next tick once the way is clear
             }
@@ -1009,9 +1051,8 @@ public class GatherResourceAction extends BaseAction {
             if (fellPillar.contains(below)) {
                 // Our own pillar block - even a same-type log (the fallback
                 // pillar material IS the target block): dismantle it, the
-                // drop returns to the inventory via vacuum
-                vasyan.swing(InteractionHand.MAIN_HAND, true);
-                if (vasyan.level().destroyBlock(below, true)) {
+                // drops go straight into the inventory.
+                if (mineIntoInventory(below)) {
                     fellPillar.remove(below);
                     vasyan.setPos(below.getX() + 0.5, below.getY(), below.getZ() + 0.5);
                     fellHeight--;
@@ -1125,9 +1166,10 @@ public class GatherResourceAction extends BaseAction {
     }
 
     /**
-     * After mining a material block the drop needs a few ticks to be vacuumed
-     * into the inventory. Wait briefly instead of mining another block (which
-     * previously looped forever when the drop never arrived).
+     * After mining a material block the drops are already in the inventory
+     * (directly, not via the world vacuum). Wait briefly anyway so the
+     * inventory delta is seen by the rest of the tick, instead of mining
+     * another block immediately.
      */
     private void phaseFellWaitPickup() {
         fellWaitTicks++;
@@ -1180,15 +1222,15 @@ public class GatherResourceAction extends BaseAction {
      * Removes the pillar blocks under the Vasyan, dropping down level by level,
      * then wipes any pillar blocks left standing anywhere (mid-descent abort,
      * externally replaced blocks). Only positions in fellPillar are touched -
-     * never the terrain and never the tree's own logs. Drops are picked up by
-     * the vacuum, so nothing is left in the landscape.
+     * never the terrain and never the tree's own logs. Drops go directly into
+     * the inventory, so nothing is left in the landscape.
      */
     private void dismantlePillar() {
         int guard = 0;
         while (fellHeight > 0 && guard++ < FELL_MAX_HEIGHT) {
             BlockPos below = vasyan.blockPosition().below();
             if (fellPillar.contains(below)) {
-                vasyan.level().destroyBlock(below, true);
+                mineIntoInventory(below);
                 fellPillar.remove(below);
             }
             vasyan.setPos(below.getX() + 0.5, below.getY(), below.getZ() + 0.5);
@@ -1197,7 +1239,7 @@ public class GatherResourceAction extends BaseAction {
         fellHeight = 0;
         for (BlockPos p : fellPillar) {
             if (!vasyan.level().getBlockState(p).isAir()) {
-                vasyan.level().destroyBlock(p, true);
+                mineIntoInventory(p);
             }
         }
         fellPillar.clear();
