@@ -206,7 +206,7 @@ class PathMonitorTest {
     }
 
     @Test
-    void distantUphillRouteUsesLocalAscendRecovery() {
+    void distantUphillRouteDoesNotUseLocalAscendRecovery() {
         var goal = VasyanGoal.near(new BlockPos(20, 70, 20), 1);
         var settings = new VerticalRecoverySettings(true, 8, 6);
         var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);

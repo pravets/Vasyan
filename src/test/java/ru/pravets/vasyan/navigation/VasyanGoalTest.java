@@ -165,4 +165,13 @@ class VasyanGoalTest {
         assertEquals(64, ((GoalY) composite.goals()[0]).y(),
             "mutating the accessor copy must not affect the composite");
     }
+
+    @Test
+    void horizontalNearAnchorUsesBotY() {
+        // Station target Y is a phantom height; anchor must keep current bot Y.
+        var target = new BlockPos(20, 200, 20);
+        var botPos = new BlockPos(10, 64, 10);
+        BlockPos anchor = VasyanGoal.anchor(VasyanGoal.horizontalNear(target, 3), botPos);
+        assertEquals(new BlockPos(20, 64, 20), anchor);
+    }
 }
