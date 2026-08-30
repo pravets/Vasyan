@@ -123,6 +123,7 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_STATIONS_PER_RING;
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_TTL_TICKS;
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_RADIUS;
+    public static final ForgeConfigSpec.IntValue GATHER_LEAF_DIG_MAX_DEPTH;
     public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
@@ -277,6 +278,13 @@ public class VasyanConfig {
         GATHER_MEMORY_RADIUS = builder
             .comment("Radius in which a remembered empty zone blocks a new station")
             .defineInRange("memoryRadius", 8, 2, 32);
+
+        GATHER_LEAF_DIG_MAX_DEPTH = builder
+            .comment("Maximum leaves a tree route may dig through before giving up.",
+                "Mangrove canopies can be more than four blocks deep, so this budget",
+                "is larger than the generic tunnel cap. It applies only to routes",
+                "towards a log target; all other routes keep digThroughMaxBlocks.")
+            .defineInRange("leafDigMaxDepth", 12, 0, 64);
 
         builder.pop();
 

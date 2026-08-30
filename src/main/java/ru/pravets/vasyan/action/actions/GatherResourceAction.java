@@ -465,7 +465,8 @@ public class GatherResourceAction extends BaseAction {
                 VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
                 VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
                 VasyanConfig.NAV_SEARCH_RADIUS.get());
-            routeMonitor = VasyanPathing.moveTo(vasyan, routeGoal, routeBudgets);
+            int maxDig = maxDigDepthFor(routeTarget.equals(mineTarget), logTarget);
+            routeMonitor = VasyanPathing.moveTo(vasyan, routeGoal, routeBudgets, maxDig);
         }
 
         long nowNano = System.nanoTime();
@@ -559,6 +560,18 @@ public class GatherResourceAction extends BaseAction {
      */
     static boolean shouldKeepLocalOnly(boolean monitorGaveUp, boolean botInWater) {
         return monitorGaveUp && botInWater;
+    }
+
+    /**
+     * Pure mapping for unit tests: (mine route?, log target?) -> dig budget.
+     * Tree routes to a log target need a larger dig budget because mangrove
+     * canopies can be more than four blocks deep; everything else keeps the
+     * generic tunnel cap.
+     */
+    static int maxDigDepthFor(boolean mineRoute, boolean logTarget) {
+        return mineRoute && logTarget
+            ? VasyanConfig.GATHER_LEAF_DIG_MAX_DEPTH.get()
+            : VasyanConfig.NAV_DIG_THROUGH_MAX.get();
     }
 
     /**

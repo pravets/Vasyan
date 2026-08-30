@@ -476,6 +476,36 @@ class PathMonitorTest {
     }
 
     @Test
+    void treeRouteLeafDigBudgetAllowsTwelveDigsBeforeEscalation() {
+        // Mangrove canopies can be more than four blocks deep. Tree routes use
+        // a dedicated leaf dig budget so clearing foliage does not immediately
+        // hit the generic tunnel cap.
+        var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, false, 12);
+
+        BlockPos pos = BOT;
+        int digs = 0;
+        boolean gaveUp = false;
+        for (int guard = 0; guard < 200 && !gaveUp; guard++) {
+            PathMonitor.Decision d = m.onTick(pos, false, true, true, false);
+            if (d == PathMonitor.Decision.CONTINUE) {
+                continue;
+            }
+            if (d == PathMonitor.Decision.DIG_THROUGH) {
+                digs++;
+                m.onRecoverySuccess();
+                pos = pos.east();
+                continue;
+            }
+            assertEquals(PathMonitor.Decision.GIVE_UP, d,
+                "after 12 leaf digs the generic route must give up (no place/teleport)");
+            gaveUp = true;
+        }
+        assertTrue(gaveUp, "the monitor must give up instead of tunneling forever");
+        assertEquals(12, digs, "a leaf budget of 12 must allow exactly 12 digs");
+    }
+
+    @Test
     void thinWallIsStillDugThroughWithinTheDefaultBudget() {
         // Behavior scenario C contract: a 1-block wall is still dug through -
         // the dig budget only stops TUNNELS, not the first dig of a route.

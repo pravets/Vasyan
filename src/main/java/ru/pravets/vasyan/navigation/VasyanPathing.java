@@ -105,7 +105,23 @@ public final class VasyanPathing {
      * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
      */
     public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets) {
-        return moveTo(vasyan, goal, budgets, GROUND_SPEED);
+        return moveTo(vasyan, goal, budgets, VasyanConfig.NAV_DIG_THROUGH_MAX.get());
+    }
+
+    /**
+     * Starts a monitored move towards the goal with an explicit per-route dig
+     * budget. Tree routes use a larger leaf-dig budget; all other routes keep
+     * the generic tunnel cap.
+     *
+     * @param vasyan       bot to move
+     * @param goal         goal to reach; must not be null
+     * @param budgets      time/scope budgets owned by the CALLER; never stored
+     * @param maxDigThrough maximum blocks this route may dig through
+     * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
+     */
+    public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets,
+                                     int maxDigThrough) {
+        return moveTo(vasyan, goal, budgets, GROUND_SPEED, maxDigThrough);
     }
 
     /**
@@ -119,7 +135,22 @@ public final class VasyanPathing {
      * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
      */
     public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets,
-                                     double speed) {
+                                      double speed) {
+        return moveTo(vasyan, goal, budgets, speed, VasyanConfig.NAV_DIG_THROUGH_MAX.get());
+    }
+
+    /**
+     * Moves toward {@code goal} at a caller-chosen speed with an explicit dig budget.
+     *
+     * @param vasyan       bot to move
+     * @param goal         goal to reach; must not be null
+     * @param budgets      time/scope budgets owned by the CALLER; never stored
+     * @param speed        navigation speed to steer at
+     * @param maxDigThrough maximum blocks this route may dig through
+     * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
+     */
+    public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets,
+                                     double speed, int maxDigThrough) {
         Objects.requireNonNull(vasyan, "vasyan");
         Objects.requireNonNull(goal, "goal");
         Objects.requireNonNull(budgets, "budgets");
@@ -139,7 +170,7 @@ public final class VasyanPathing {
         return new PathMonitor(goal, PathMonitor.DEFAULT_STALL_TICKS, PathMonitor.DEFAULT_MAX_REPLANS,
             PathMonitor.DEFAULT_NAV_DONE_REPLANS, speed, verticalRecovery,
             VasyanConfig.NAV_HOP_TELEPORT_ENABLED.get(),
-            VasyanConfig.NAV_DIG_THROUGH_MAX.get());
+            maxDigThrough);
     }
 
     /**

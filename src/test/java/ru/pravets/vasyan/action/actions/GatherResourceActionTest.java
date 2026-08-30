@@ -52,4 +52,18 @@ class GatherResourceActionTest extends AbstractMinecraftTest {
             "no actual give-up means nothing needs to be skipped at all");
         assertFalse(GatherResourceAction.shouldKeepLocalOnly(false, false));
     }
+
+    @Test
+    void treeRoutesGetALargerLeafDigBudget() {
+        int leafMax = ru.pravets.vasyan.config.VasyanConfig.GATHER_LEAF_DIG_MAX_DEPTH.get();
+        int navMax = ru.pravets.vasyan.config.VasyanConfig.NAV_DIG_THROUGH_MAX.get();
+        assertTrue(leafMax > navMax,
+            "leaf dig budget must exceed the generic tunnel cap for mangrove canopies");
+        assertEquals(leafMax, GatherResourceAction.maxDigDepthFor(true, true),
+            "tree mine routes use the leaf-specific dig budget");
+        assertEquals(navMax, GatherResourceAction.maxDigDepthFor(true, false),
+            "ore routes keep the generic tunnel cap");
+        assertEquals(navMax, GatherResourceAction.maxDigDepthFor(false, false),
+            "look-out stations keep the generic tunnel cap");
+    }
 }
