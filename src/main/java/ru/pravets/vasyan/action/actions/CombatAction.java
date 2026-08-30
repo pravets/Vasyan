@@ -106,13 +106,14 @@ public class CombatAction extends BaseAction {
 
         if (routeMonitor != null && routeBudgets != null) {
             long nowNano = System.nanoTime();
+            long gameTime = vasyan.level().getGameTime();
             routeBudgets = routeBudgets.nextTick(nowNano);
             // think-budget bounds PLANNING only: fail only if the route never got
             // moving inside the budget - once the bot advances, the monitor's own
             // budgets (stall windows + paced replans + recovery ladder) govern.
             boolean moved = routeStartPos != null
                 && !vasyan.blockPosition().equals(routeStartPos);
-            if (routeBudgets.thinkExpired(nowNano) && !moved && !routeMonitor.inLadderRecovery()) {
+            if (routeBudgets.thinkExpiredTicks(gameTime) && !moved && !routeMonitor.inLadderRecovery()) {
                 finishCombat("Cannot reach combat target");
                 result = ActionResult.failure("Cannot reach combat target");
                 return;
@@ -138,8 +139,7 @@ public class CombatAction extends BaseAction {
     private void startRoute(BlockPos targetBlock) {
         routeTargetPos = targetBlock;
         routeStartPos = vasyan.blockPosition();
-        long nowNano = System.nanoTime();
-        routeBudgets = PathBudgets.start(nowNano,
+        routeBudgets = PathBudgets.startInTicks(vasyan.level().getGameTime(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
             ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());

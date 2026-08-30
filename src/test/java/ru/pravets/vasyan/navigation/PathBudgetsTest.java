@@ -95,4 +95,15 @@ class PathBudgetsTest {
         assertThrows(IllegalArgumentException.class, () -> PathBudgets.start(0L, 2000L, 10L, 0));
         assertThrows(IllegalArgumentException.class, () -> PathBudgets.start(0L, 2000L, 10L, -5));
     }
+
+    @Test
+    void thinkExpiredTicksUsesGameTimeNotWallClock() {
+        long startTick = 100L;
+        var budgets = PathBudgets.startInTicks(startTick, 2000L, 10L, 64);
+
+        assertFalse(budgets.thinkExpiredTicks(startTick + 40L),
+            "exactly 2000 ms (40 ticks) must not be expired");
+        assertTrue(budgets.thinkExpiredTicks(startTick + 41L),
+            "one tick past 40 must be expired");
+    }
 }

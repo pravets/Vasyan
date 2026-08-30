@@ -458,7 +458,7 @@ public class GatherResourceAction extends BaseAction {
             routeGoal = routeTarget.equals(mineTarget)
                 ? VasyanGoal.near(routeTarget, 1)
                 : VasyanGoal.horizontalNear(routeTarget, STATION_GOAL_RANGE);
-            routeBudgets = PathBudgets.start(System.nanoTime(),
+            routeBudgets = PathBudgets.startInTicks(vasyan.level().getGameTime(),
                 VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
                 VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
                 VasyanConfig.NAV_SEARCH_RADIUS.get());
@@ -466,6 +466,7 @@ public class GatherResourceAction extends BaseAction {
         }
 
         long nowNano = System.nanoTime();
+        long gameTime = vasyan.level().getGameTime();
         BlockPos botPos = vasyan.blockPosition();
 
         // think-budget bounds PLANNING only: if the route attempt ran out of
@@ -474,7 +475,7 @@ public class GatherResourceAction extends BaseAction {
         // replans + recovery ladder) govern - a long walk is not a planning
         // failure (review #39).
         boolean moved = routeStartPos != null && !botPos.equals(routeStartPos);
-        if (routeBudgets.thinkExpired(nowNano) && !moved && !routeMonitor.inLadderRecovery()) {
+        if (routeBudgets.thinkExpiredTicks(gameTime) && !moved && !routeMonitor.inLadderRecovery()) {
             debugLog("ROUTING", "think budget exhausted before movement for " + routeGoal.describe());
             skipCurrentRouteTarget();
             return;

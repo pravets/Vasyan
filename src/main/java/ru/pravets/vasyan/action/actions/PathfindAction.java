@@ -57,10 +57,10 @@ public class PathfindAction extends BaseAction {
      * Builds the time budgets for this pathfinding attempt from the navigation config.
      * Package-private so tests can inject deterministic (e.g. already expired) budgets.
      *
-     * @return fresh budgets started at the current nano time
+     * @return fresh budgets with a tick-based think deadline started at the current game tick
      */
     PathBudgets createBudgets() {
-        return PathBudgets.start(System.nanoTime(),
+        return PathBudgets.startInTicks(vasyan.level().getGameTime(),
             VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
             VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
             VasyanConfig.NAV_SEARCH_RADIUS.get());
@@ -69,6 +69,7 @@ public class PathfindAction extends BaseAction {
     @Override
     protected void onTick() {
         long nowNano = System.nanoTime();
+        long gameTime = vasyan.level().getGameTime();
         // The think budget bounds PLANNING: the time between the action start and
         // the bot visibly starting to move. Once the bot moves, the monitor's own
         // budgets (stall windows, paced replans, ladder) govern the rest - a long
@@ -78,7 +79,7 @@ public class PathfindAction extends BaseAction {
             firstPosition = current;
         }
         boolean everMoved = !current.equals(firstPosition);
-        if (budgets.thinkExpired(nowNano) && !everMoved && !monitor.inLadderRecovery()) {
+        if (budgets.thinkExpiredTicks(gameTime) && !everMoved && !monitor.inLadderRecovery()) {
             ru.pravets.vasyan.VasyanMod.LOGGER.debug(
                 "Vasyan '{}': pathfind budget exhausted before any movement",
                 vasyan.getVasyanName());
