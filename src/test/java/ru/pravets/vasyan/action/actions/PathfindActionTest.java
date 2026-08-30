@@ -127,7 +127,7 @@ class PathfindActionTest extends AbstractMinecraftTest {
         // Budgets injected through the seam are already expired: the very first tick must
         // fail with the budget message before any monitor enforcement happens.
         PathfindAction action = actionAt(15, 64, 20, 0, 64, 0,
-            PathBudgets.start(System.nanoTime() - 5_000_000L, 1L, 1L, 16));
+            PathBudgets.startInTicks(vasyan.level().getGameTime() - 10, 1L, 1L, 16));
 
         action.start();
         action.tick();
