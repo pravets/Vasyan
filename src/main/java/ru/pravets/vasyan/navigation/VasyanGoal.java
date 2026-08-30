@@ -105,7 +105,7 @@ public interface VasyanGoal {
             return near.target();
         }
         if (goal instanceof GoalHorizontalNear near) {
-            return near.target();
+            return new BlockPos(near.target().getX(), botPos.getY(), near.target().getZ());
         }
         if (goal instanceof GoalAdjacent adjacent) {
             return adjacent.block();
