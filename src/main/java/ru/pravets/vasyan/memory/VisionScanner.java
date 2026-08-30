@@ -152,9 +152,9 @@ public final class VisionScanner {
      */
     public static List<BlockPos> findVisibleAnyLog(VasyanEntity vasyan) {
         Map<Block, List<BlockPos>> visible = scan(vasyan);
-        List<BlockPos> found = new java.util.ArrayList<>();
+        List<BlockPos> found = new ArrayList<>();
         for (Map.Entry<Block, List<BlockPos>> entry : visible.entrySet()) {
-            if (entry.getKey().builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS)) {
+            if (entry.getKey().builtInRegistryHolder().is(BlockTags.LOGS)) {
                 found.addAll(entry.getValue());
             }
         }
@@ -192,9 +192,13 @@ public final class VisionScanner {
             for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    // Never load chunks synchronously on the server tick
+                    if (!level.hasChunkAt(pos)) {
+                        continue;
+                    }
                     Block block = level.getBlockState(pos).getBlock();
                     boolean match = targets == null
-                        ? block.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS)
+                        ? block.builtInRegistryHolder().is(BlockTags.LOGS)
                         : targets.contains(block);
                     if (match) {
                         found.add(pos);
@@ -210,7 +214,7 @@ public final class VisionScanner {
     /**
      * No-LOS nearby scan for ORES that keeps anti-xray honest: a block is
      * returned only when it is exposed ({@link #isExposedForMining}) AND has a
-     * standable approach cell next to it ({@link #hasStandableApproach}). This
+     * passable approach cell next to it ({@link #hasPassableApproach}). This
      * finds the exposed coal face "just around the corner" that the eye ray
      * misses against a terrain lip, while buried ore - or ore reachable only
      * through solid ground - stays invisible.
@@ -220,7 +224,7 @@ public final class VisionScanner {
         Level level = vasyan.level();
         return findNearbyBlocks(vasyan, radius, targets).stream()
             .filter(p -> isExposedForMining(level, p, level.getBlockState(p).getBlock()))
-            .filter(p -> hasStandableApproach(level, p))
+            .filter(p -> hasPassableApproach(level, p))
             .toList();
     }
 
@@ -231,7 +235,7 @@ public final class VisionScanner {
      * Standing on top of the block counts (UP approach); the DOWN approach
      * rejects itself because its headroom cell is the block itself.
      */
-    static boolean hasStandableApproach(Level level, BlockPos pos) {
+    static boolean hasPassableApproach(Level level, BlockPos pos) {
         for (Direction dir : Direction.values()) {
             BlockPos approach = pos.relative(dir);
             if (!isPassableForVision(level.getBlockState(approach))) {
@@ -451,6 +455,7 @@ public final class VisionScanner {
         Map<Block, List<BlockPos>> visible = new HashMap<>();
         for (Map.Entry<Block, Set<BlockPos>> entry : candidates.entrySet()) {
             Block block = entry.getKey();
+            boolean isLogTarget = block.builtInRegistryHolder().is(BlockTags.LOGS);
             List<BlockPos> positions = new ArrayList<>(entry.getValue());
 
             positions.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
@@ -460,8 +465,7 @@ public final class VisionScanner {
                     break;
                 }
                 checked++;
-                if (block.builtInRegistryHolder().is(BlockTags.LOGS)
-                        || isExposedForMining(level, pos, block)) {
+                if (isLogTarget || isExposedForMining(level, pos, block)) {
                     if (hasLineOfSightForMining(vasyan, pos, block)) {
                         visible.computeIfAbsent(block, k -> new ArrayList<>()).add(pos);
                     }

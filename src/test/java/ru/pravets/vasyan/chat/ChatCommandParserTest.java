@@ -2,12 +2,14 @@ package ru.pravets.vasyan.chat;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static ru.pravets.vasyan.chat.ChatCommandParser.isAllCommand;
 import static ru.pravets.vasyan.chat.ChatCommandParser.isStayCommand;
 import static ru.pravets.vasyan.chat.ChatCommandParser.normalize;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChatCommandParserTest {
 

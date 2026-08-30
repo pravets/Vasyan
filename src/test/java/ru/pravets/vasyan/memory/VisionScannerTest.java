@@ -5,12 +5,14 @@ import ru.pravets.vasyan.testutil.AbstractMinecraftTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -28,7 +30,7 @@ import static org.mockito.Mockito.when;
  * exposed for ores (an ore face touching leaves is legitimately visible).
  *
  * <p>The no-LOS nearby scan for ores ({@link VisionScanner#findNearbyExposedBlocks})
- * adds a standable-approach requirement on top of the exposed-face rule: the
+ * adds a passable-approach requirement on top of the exposed-face rule: the
  * bot must be able to physically stand next to the exposed face, so ore under
  * a one-block floor (no headroom) stays hidden.</p>
  */
@@ -118,6 +120,7 @@ class VisionScannerTest extends AbstractMinecraftTest {
         BlockState airFace = open();
         BlockState airHeadroom = open();
         Level level = mock(Level.class);
+        when(level.hasChunkAt(any())).thenReturn(true);
         when(level.getBlockState(any())).thenReturn(stone);
         when(level.getBlockState(ore)).thenReturn(coal);
         when(level.getBlockState(ore.east())).thenReturn(airFace);
@@ -126,7 +129,7 @@ class VisionScannerTest extends AbstractMinecraftTest {
         List<BlockPos> found = VisionScanner.findNearbyExposedBlocks(
             vasyanAt(level, center), 5, Set.of(Blocks.COAL_ORE));
         assertTrue(found.contains(ore),
-            "exposed ore with a standable approach cell must be discoverable without LOS");
+            "exposed ore with a passable approach cell must be discoverable without LOS");
     }
 
     @Test
@@ -136,6 +139,7 @@ class VisionScannerTest extends AbstractMinecraftTest {
         BlockState stone = solid(Blocks.STONE);
         BlockState coal = solid(Blocks.COAL_ORE);
         Level level = mock(Level.class);
+        when(level.hasChunkAt(any())).thenReturn(true);
         when(level.getBlockState(any())).thenReturn(stone);
         when(level.getBlockState(ore)).thenReturn(coal);
 
@@ -156,6 +160,7 @@ class VisionScannerTest extends AbstractMinecraftTest {
         BlockState airEast = open();
         BlockState airBelow = open();
         Level level = mock(Level.class);
+        when(level.hasChunkAt(any())).thenReturn(true);
         when(level.getBlockState(any())).thenReturn(stone);
         when(level.getBlockState(ore)).thenReturn(coal);
         // Open cells around the ore, but no headroom anywhere.
@@ -184,8 +189,7 @@ class VisionScannerTest extends AbstractMinecraftTest {
         when(level.getBlockState(any())).thenReturn(stone);
         when(level.getBlockState(ore)).thenReturn(coal);
 
-        var candidates = new java.util.HashMap<net.minecraft.world.level.block.Block,
-            java.util.Set<BlockPos>>();
+        var candidates = new HashMap<Block, Set<BlockPos>>();
         VisionScanner.collectCandidates(level, center, 8, 2, candidates);
 
         assertTrue(candidates.getOrDefault(Blocks.COAL_ORE, Set.of()).contains(ore),

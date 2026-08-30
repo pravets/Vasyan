@@ -269,7 +269,16 @@ public class ProviderChainClient implements AsyncLLMClient {
                 // issued while ollama's breaker was still OPEN became
                 // "Stay near the player"). Run the same pattern matcher the
                 // member resilience layer would have run.
-                fallback = new LLMFallbackHandler().generateFallback(prompt, null);
+                LLMResponse handlerFallback = new LLMFallbackHandler().generateFallback(prompt, null);
+                fallback = LLMResponse.builder()
+                    .content(handlerFallback.getContent())
+                    .model(handlerFallback.getModel())
+                    .providerId(handlerFallback.getProviderId())
+                    .tokensUsed(handlerFallback.getTokensUsed())
+                    .latencyMs(handlerFallback.getLatencyMs())
+                    .fromCache(handlerFallback.isFromCache())
+                    .failureReason("all providers in the failover chain are unavailable")
+                    .build();
             }
             return fallback;
         });
