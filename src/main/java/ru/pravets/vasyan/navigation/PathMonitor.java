@@ -1,7 +1,10 @@
 package ru.pravets.vasyan.navigation;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Block;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,10 +27,10 @@ import java.util.List;
  * the next one (DIG_THROUGH needs canDig, PLACE_SCAFFOLD needs canPlace); each emitted ladder
  * step gets its own grace window of stallTicks, and silence for that whole window advances to
  * the next step; HOP_TELEPORT is emitted at most once per monitor instance. DIG_THROUGH is
- * additionally capped by a per-monitor dig budget ({@code maxDigThrough}): every successfully
- * dug block is spent from it even when the bot moves forward and the ladder re-arms on real
- * motion, so horizontal tunneling through a mountain ends in GIVE_UP instead of an endless
- * dig-walk-dig loop (the stone-tunnel bug).
+ * additionally capped by a per-monitor dig budget ({@code maxDigThrough}): each forward step
+ * of the tunnel spends one unit of depth from it even when the bot then walks forward and the
+ * ladder re-arms on real motion, so horizontal tunneling through a mountain ends in GIVE_UP
+ * instead of an endless dig-walk-dig loop (the stone-tunnel bug).
  *
  * <p>Replan accounting: stalls consume maxReplans; navigation finishing outside the goal
  * triggers an immediate REPLAN on a separate navDoneReplans budget instead, so unstable
@@ -35,6 +38,12 @@ import java.util.List;
  * while the goal is unreached ends in GIVE_UP.
  */
 public final class PathMonitor {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(PathMonitor.class);
+
+    /** A support/scaffold block placed by recovery together with its position. */
+    public record PlacedSupport(BlockPos pos, Block block) {
+    }
 
     /** Decisions the monitor hands to the action glue for execution. */
     public enum Decision {
@@ -64,8 +73,10 @@ public final class PathMonitor {
     public static final int DEFAULT_NAV_DONE_REPLANS = 10;
     /** Default navigation speed carried into replans (matches VasyanPathing.GROUND_SPEED). */
     public static final double DEFAULT_NAV_SPEED = 1.0;
-    /** Default cap on DIG_THROUGH blocks per route (anti-tunneling). */
+    /** Default tunnel depth cap per route (anti-tunneling). */
     public static final int DEFAULT_MAX_DIG_THROUGH = 4;
+    /** Maximum support/scaffold blocks remembered for dismantling on give-up. */
+    public static final int MAX_PLACED_SUPPORTS = 64;
 
     private VasyanGoal goal;
     private final int stallTicks;
@@ -74,7 +85,7 @@ public final class PathMonitor {
     private final double navSpeed;
     private final VerticalRecoverySettings verticalRecovery;
     private final boolean hopTeleportEnabled;
-    /** Total blocks this route may dig through before the ladder stops digging. */
+    /** Total tunnel depth this route may dig through before the ladder stops digging. */
     private final int maxDigThrough;
 
     private int stallCounter;
@@ -88,8 +99,9 @@ public final class PathMonitor {
     private int digThroughUsed;
     /** Support/scaffold blocks placed by this route's recovery; dismantled on give-up
      *  so a bot that pillared into a dead pocket drops back out instead of trapping
-     *  itself on its own block (Bob's dirt-niche self-trap). */
-    private final List<BlockPos> placedSupports = new ArrayList<>();
+     *  itself on its own block (Bob's dirt-niche self-trap). Oldest-first, capped at
+     *  {@link #MAX_PLACED_SUPPORTS} to keep memory bounded. */
+    private final List<PlacedSupport> placedSupports = new ArrayList<>();
     /** Last observed bot cell; a change since then counts as forward motion. */
     private BlockPos lastStallPos;
 
@@ -258,19 +270,6 @@ public final class PathMonitor {
     }
 
     /**
-     * Reports actual forward motion (the bot moved, mined or placed). Resets the stall window
-     * and returns the monitor to normal tracking; consumed budgets are not restored.
-     */
-    public void onProgress() {
-        // Real motion happened: step back to normal tracking (a fresh stall
-        // window, back at LADDER_ENTRY so the next decision is a vanilla replan
-        // before any recovery step is re-tried). This prevents the ladder from
-        // re-firing DIG_THROUGH on every window after a single successful dig.
-        step = Step.LADDER_ENTRY;
-        resetWindow();
-    }
-
-    /**
      * Reports that the current recovery action visibly succeeded (a block was dug, a scaffold
      * was placed, or the hop teleport happened) without claiming the bot moved. The step gets a
      * fresh grace window, but the ladder position is preserved: if the bot remains stationary,
@@ -278,9 +277,9 @@ public final class PathMonitor {
      * recovery steps (e.g. place a scaffold ahead, then dig that same scaffold back down).
      */
     public void onRecoverySuccess() {
-        // A successful dig spends from the dig budget even though the bot then
-        // walks forward and the ladder re-arms on real motion: without this
-        // accounting every dug block bought a brand-new ladder and the bot
+        // A successful dig spends one unit of tunnel depth even though the bot
+        // then walks forward and the ladder re-arms on real motion: without this
+        // accounting every dug corridor bought a brand-new ladder and the bot
         // tunnelled through a whole mountain one ladder cycle at a time.
         if (step == Step.DIG_THROUGH) {
             digThroughUsed++;
@@ -334,6 +333,12 @@ public final class PathMonitor {
         return navSpeed;
     }
 
+    /** Test-only seam: resets the stall/replan window and returns the ladder to entry. */
+    void resetProgressForTest() {
+        step = Step.LADDER_ENTRY;
+        resetWindow();
+    }
+
     /**
      * Whether the monitor has irrevocably given up. A finished monitor keeps answering ticks
      * with GIVE_UP.
@@ -351,8 +356,8 @@ public final class PathMonitor {
 
     /**
      * Whether the monitor is currently executing the fallback ladder (dig/scaffold/teleport)
-     * or has exhausted its paced replan budget. While true, callers with a think-budget should
-     * keep ticking instead of failing: recovery steps take many stall windows by design.
+     * or has consumed at least one paced navDone replan. While true, callers with a think-budget
+     * should keep ticking instead of failing: recovery steps take many stall windows by design.
      */
     public boolean inLadderRecovery() {
         return step != Step.LADDER_ENTRY || navDoneReplansUsed > 0;
@@ -364,14 +369,17 @@ public final class PathMonitor {
     }
 
     /** Records a support/scaffold block placed by recovery (dismantled on give-up). */
-    public void recordPlacedSupport(BlockPos pos) {
-        if (placedSupports.size() < 64) {
-            placedSupports.add(pos.immutable());
+    public void recordPlacedSupport(BlockPos pos, Block block) {
+        if (placedSupports.size() >= MAX_PLACED_SUPPORTS) {
+            LOGGER.warn("PathMonitor placed-support tracking capped at {}; older supports "
+                + "will not be dismantled on give-up", MAX_PLACED_SUPPORTS);
+            return;
         }
+        placedSupports.add(new PlacedSupport(pos.immutable(), block));
     }
 
     /** Support blocks placed by this route so far, oldest first. */
-    public List<BlockPos> placedSupports() {
+    public List<PlacedSupport> placedSupports() {
         return placedSupports;
     }
 

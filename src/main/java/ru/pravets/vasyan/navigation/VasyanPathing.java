@@ -83,6 +83,11 @@ public final class VasyanPathing {
     /** Offset from a block corner to its center, used for navigation/teleport targets. */
     private static final double CENTER_OFFSET = 0.5;
 
+    /** Maximum preparation iterations for one vertical step before giving up. */
+    private static final int MAX_PREPARE_CHAIN = 4;
+    /** How many cells ahead (including the bot's own cell) findDiggableAhead scans. */
+    private static final int AHEAD_SCAN_STEPS = 3;
+
     private VasyanPathing() {
     }
 
@@ -109,14 +114,14 @@ public final class VasyanPathing {
     }
 
     /**
-     * Starts a monitored move towards the goal with an explicit per-route dig
-     * budget. Tree routes use a larger leaf-dig budget; all other routes keep
+     * Starts a monitored move towards the goal with an explicit per-route tunnel
+     * depth. Tree routes use a larger leaf-dig budget; all other routes keep
      * the generic tunnel cap.
      *
      * @param vasyan       bot to move
      * @param goal         goal to reach; must not be null
      * @param budgets      time/scope budgets owned by the CALLER; never stored
-     * @param maxDigThrough maximum blocks this route may dig through
+     * @param maxDigThrough maximum tunnel depth this route may dig through
      * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
      */
     public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets,
@@ -140,13 +145,13 @@ public final class VasyanPathing {
     }
 
     /**
-     * Moves toward {@code goal} at a caller-chosen speed with an explicit dig budget.
+     * Moves toward {@code goal} at a caller-chosen speed with an explicit tunnel depth.
      *
      * @param vasyan       bot to move
      * @param goal         goal to reach; must not be null
      * @param budgets      time/scope budgets owned by the CALLER; never stored
      * @param speed        navigation speed to steer at
-     * @param maxDigThrough maximum blocks this route may dig through
+     * @param maxDigThrough maximum tunnel depth this route may dig through
      * @return a fresh {@link PathMonitor} with default stall/replan budgets (40/3)
      */
     public static PathMonitor moveTo(VasyanEntity vasyan, VasyanGoal goal, PathBudgets budgets,
@@ -210,8 +215,8 @@ public final class VasyanPathing {
 
     /**
      * Enforces the monitor decision under an explicit recovery policy:
-     * {@link RecoveryPolicy#NONE} gives up on any stall, {@link RecoveryPolicy#ASCEND_ONLY}
-     * permits only climbing up to a goal above the bot, {@link RecoveryPolicy#FULL} runs
+     * {@link RecoveryPolicy#NONE} gives up on any stall, {@link RecoveryPolicy#VERTICAL_ONLY}
+     * permits only climbing up/down to a goal above/below the bot, {@link RecoveryPolicy#FULL} runs
      * the whole ladder.
      */
     public static void enforce(VasyanEntity vasyan, PathMonitor monitor, RecoveryPolicy policy) {
@@ -227,14 +232,6 @@ public final class VasyanPathing {
         BlockPos diggable = full ? findDiggableAhead(vasyan, monitor.goal()) : null;
         boolean canDig = full && diggable != null;
         boolean canPlace = full && findScaffoldStack(vasyan) != null;
-
-        // Temporary diagnostics for behavior scenario C (wall dig-through).
-        if (vasyan.tickCount % 40 == 0) {
-            VasyanMod.LOGGER.debug("Vasyan '{}': nav diag pos={} navDone={} canDig={} canPlace={} "
-                    + "diggable={} recovering={}",
-                vasyan.getVasyanName(), vasyan.blockPosition(), navDone, canDig, canPlace,
-                diggable, monitor.inLadderRecovery());
-        }
 
         // Contract: hasPath == "path currently assigned" == !navDone.
         PathMonitor.Decision decision =
@@ -339,7 +336,7 @@ public final class VasyanPathing {
         // only clear/place and wait for the next stall, PathMonitor would treat
         // the successful preparation as a completed vertical step and advance
         // the ladder to DIG_THROUGH without ever steering onto the new step.
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < MAX_PREPARE_CHAIN; i++) {
             var step = VerticalTraversalPlanner.nextStep(botPos, anchor, mode,
                 maskOwnColumn ? maskingOwnColumn(world, botPos) : world);
             if (step.isEmpty()) {
@@ -384,7 +381,7 @@ public final class VasyanPathing {
 
             if (isOpen(level, planned.standPos()) && isOpen(level, planned.standPos().above())) {
                 steerTo(vasyan, planned.standPos(), monitor.navSpeed());
-                VasyanMod.LOGGER.warn("Vasyan '{}': {} step to {}",
+                VasyanMod.LOGGER.info("Vasyan '{}': {} step to {}",
                     name, mode, planned.standPos().toShortString());
                 monitor.onRecoverySuccess();
             } else {
@@ -484,7 +481,7 @@ public final class VasyanPathing {
                 planned.target().toShortString());
             return false;
         }
-        VasyanMod.LOGGER.warn("Vasyan '{}': {} cleared {} at {}",
+        VasyanMod.LOGGER.info("Vasyan '{}': {} cleared {} at {}",
             name, planned.mode(), state.getBlock().getName().getString(),
             planned.target().toShortString());
         return true;
@@ -537,10 +534,10 @@ public final class VasyanPathing {
             return false;
         }
         stack.shrink(1);
-        VasyanMod.LOGGER.warn("Vasyan '{}': placed support {} at {}",
+        VasyanMod.LOGGER.info("Vasyan '{}': placed support {} at {}",
             name, blockItem.getBlock().getName().getString(), target.toShortString());
         monitor.recordVerticalScaffoldPlacement();
-        monitor.recordPlacedSupport(target);
+        monitor.recordPlacedSupport(target, blockItem.getBlock());
         return true;
     }
 
@@ -653,7 +650,7 @@ public final class VasyanPathing {
                     state.getBlock().getName().getString(), cell.toShortString());
                 continue;
             }
-            VasyanMod.LOGGER.warn("Vasyan '{}': dug through {} at {}", name,
+            VasyanMod.LOGGER.info("Vasyan '{}': dug through {} at {}", name,
                 state.getBlock().getName().getString(), cell.toShortString());
             broke = true;
         }
@@ -694,9 +691,9 @@ public final class VasyanPathing {
             return;
         }
         stack.shrink(1);
-        VasyanMod.LOGGER.warn("Vasyan '{}': placed scaffold {} at {}", name,
+        VasyanMod.LOGGER.info("Vasyan '{}': placed scaffold {} at {}", name,
             blockItem.getBlock().getName().getString(), placePos.toShortString());
-        monitor.recordPlacedSupport(placePos);
+        monitor.recordPlacedSupport(placePos, blockItem.getBlock());
         monitor.onRecoverySuccess();
         replan(vasyan, monitor);
     }
@@ -720,7 +717,7 @@ public final class VasyanPathing {
             return;
         }
         vasyan.teleportTo(safe.getX() + CENTER_OFFSET, safe.getY(), safe.getZ() + CENTER_OFFSET);
-        VasyanMod.LOGGER.warn("Vasyan '{}': hop-teleported past obstacle to {}",
+        VasyanMod.LOGGER.info("Vasyan '{}': hop-teleported past obstacle to {}",
             name, safe.toShortString());
         monitor.onRecoverySuccess();
         // One-shot fallback: the old path no longer matches the bot's new position,
@@ -747,14 +744,21 @@ public final class VasyanPathing {
         if (monitor.placedSupports().isEmpty()) {
             return;
         }
+        String name = vasyan.getVasyanName();
         Level level = vasyan.level();
-        for (BlockPos pos : monitor.placedSupports()) {
+        for (PathMonitor.PlacedSupport support : monitor.placedSupports()) {
+            BlockPos pos = support.pos();
+            if (!level.getBlockState(pos).is(support.block())) {
+                VasyanMod.LOGGER.warn("Vasyan '{}': support replaced, skipping {}",
+                    name, pos.toShortString());
+                continue;
+            }
             if (!isBreakable(level, pos)) {
                 continue;
             }
             if (level.destroyBlock(pos, true)) {
-                VasyanMod.LOGGER.warn("Vasyan '{}': dismantled support at {}",
-                    vasyan.getVasyanName(), pos.toShortString());
+                VasyanMod.LOGGER.info("Vasyan '{}': dismantled support at {}",
+                    name, pos.toShortString());
             }
         }
         monitor.placedSupports().clear();
@@ -772,19 +776,7 @@ public final class VasyanPathing {
                 && path.getNextNodeIndex() < path.getNodeCount()) {
             return path.getNextNodePos();
         }
-        BlockPos target = VasyanGoal.anchor(goal, vasyan.blockPosition());
-        int dx = Integer.compare(target.getX(), vasyan.blockPosition().getX());
-        int dz = Integer.compare(target.getZ(), vasyan.blockPosition().getZ());
-        net.minecraft.core.Direction dir;
-        int absDx = Math.abs(target.getX() - vasyan.blockPosition().getX());
-        int absDz = Math.abs(target.getZ() - vasyan.blockPosition().getZ());
-        if (dx != 0 && (absDx >= absDz || dz == 0)) {
-            dir = dx > 0 ? net.minecraft.core.Direction.EAST : net.minecraft.core.Direction.WEST;
-        } else if (dz != 0) {
-            dir = dz > 0 ? net.minecraft.core.Direction.SOUTH : net.minecraft.core.Direction.NORTH;
-        } else {
-            dir = vasyan.getDirection();
-        }
+        Direction dir = facingToward(vasyan, VasyanGoal.anchor(goal, vasyan.blockPosition()));
         return vasyan.blockPosition().relative(dir);
     }
 
@@ -795,26 +787,15 @@ public final class VasyanPathing {
      * <p>When navigation is done and the bot is pressed against an obstacle, its rounded
      * position can already be INSIDE the obstacle's column (x=148.6 rounds to 149, the wall
      * cell), so a single "one cell ahead" probe would look past the wall at clear air. Instead,
-     * scan along the goal direction for up to 2 cells (own cell included), foot level first.</p>
+     * scan along the goal direction for up to {@value #AHEAD_SCAN_STEPS} cells ahead (including
+     * the bot's own cell), foot level first.</p>
      */
     @Nullable
     private static BlockPos findDiggableAhead(VasyanEntity vasyan, VasyanGoal goal) {
         Level level = vasyan.level();
-        BlockPos target = VasyanGoal.anchor(goal, vasyan.blockPosition());
-        int dx = Integer.compare(target.getX(), vasyan.blockPosition().getX());
-        int dz = Integer.compare(target.getZ(), vasyan.blockPosition().getZ());
-        net.minecraft.core.Direction dir;
-        int absDx = Math.abs(target.getX() - vasyan.blockPosition().getX());
-        int absDz = Math.abs(target.getZ() - vasyan.blockPosition().getZ());
-        if (dx != 0 && (absDx >= absDz || dz == 0)) {
-            dir = dx > 0 ? net.minecraft.core.Direction.EAST : net.minecraft.core.Direction.WEST;
-        } else if (dz != 0) {
-            dir = dz > 0 ? net.minecraft.core.Direction.SOUTH : net.minecraft.core.Direction.NORTH;
-        } else {
-            dir = vasyan.getDirection();
-        }
+        Direction dir = facingToward(vasyan, VasyanGoal.anchor(goal, vasyan.blockPosition()));
         BlockPos cursor = vasyan.blockPosition();
-        for (int step = 0; step <= 2; step++) {
+        for (int step = 0; step < AHEAD_SCAN_STEPS; step++) {
             if (isBreakable(level, cursor)) {
                 return cursor;
             }
@@ -824,6 +805,26 @@ public final class VasyanPathing {
             cursor = cursor.relative(dir);
         }
         return null;
+    }
+
+    /**
+     * Horizontal direction the bot should face to move toward {@code target}. Prefers the axis
+     * with the larger absolute delta; when the target is on the same cell horizontally, falls
+     * back to the bot's current facing.
+     */
+    private static Direction facingToward(VasyanEntity vasyan, BlockPos target) {
+        BlockPos botPos = vasyan.blockPosition();
+        int dx = Integer.compare(target.getX(), botPos.getX());
+        int dz = Integer.compare(target.getZ(), botPos.getZ());
+        int absDx = Math.abs(target.getX() - botPos.getX());
+        int absDz = Math.abs(target.getZ() - botPos.getZ());
+        if (dx != 0 && (absDx >= absDz || dz == 0)) {
+            return dx > 0 ? Direction.EAST : Direction.WEST;
+        }
+        if (dz != 0) {
+            return dz > 0 ? Direction.SOUTH : Direction.NORTH;
+        }
+        return vasyan.getDirection();
     }
 
     /** Whether the block at {@code pos} is a real obstacle the bot may break. */

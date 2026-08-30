@@ -51,7 +51,7 @@ class PathMonitorTest {
 
         for (int i = 0; i < 200; i++) {
             assertEquals(PathMonitor.Decision.CONTINUE, tick(m), "tick " + i);
-            m.onProgress();
+            m.resetProgressForTest();
         }
     }
 
@@ -318,7 +318,7 @@ class PathMonitorTest {
             for (int t = 0; t < 20; t++) {
                 m.onTick(BOT, true, false, true, true);
             }
-            m.onProgress(); // real motion resets both windows
+            m.resetProgressForTest(); // real motion resets both windows
         }
         // The pacing window restarted: a full fresh window is needed before the replan.
         for (int t = 1; t < 40; t++) {
@@ -463,8 +463,8 @@ class PathMonitorTest {
     void digThroughBudgetStopsHorizontalTunnelingAcrossProgressResets() {
         // Regression for the stone-tunnel bug: dig, walk one block forward
         // (real motion re-arms the ladder), dig again... Without a per-monitor
-        // dig budget this loop never ends. The budget caps TOTAL digs even
-        // though every dig "succeeds" and the bot keeps moving.
+        // tunnel depth budget this loop never ends. The depth cap counts TOTAL
+        // tunnel steps even though every dig "succeeds" and the bot keeps moving.
         var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
             VerticalRecoverySettings.DEFAULT, false, 2);
 
@@ -478,7 +478,7 @@ class PathMonitorTest {
             }
             if (d == PathMonitor.Decision.DIG_THROUGH) {
                 digs++;
-                m.onRecoverySuccess(); // block really broke
+                m.onRecoverySuccess(); // tunnel step really broke
                 pos = pos.east();      // bot advances: the ladder re-arms on real motion
                 continue;
             }
@@ -487,7 +487,7 @@ class PathMonitorTest {
             gaveUp = true;
         }
         assertTrue(gaveUp, "the monitor must give up instead of tunneling forever");
-        assertEquals(2, digs, "exactly the configured dig budget may be spent");
+        assertEquals(2, digs, "exactly the configured tunnel depth may be spent");
     }
 
     @Test
@@ -547,10 +547,10 @@ class PathMonitorTest {
         // Consume two dig-through budgets with real progress between digs.
         stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
         m.onRecoverySuccess();
-        m.onProgress();
+        m.resetProgressForTest();
         stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
         m.onRecoverySuccess();
-        m.onProgress();
+        m.resetProgressForTest();
 
         BlockPos newTarget = new BlockPos(60, 64, 60);
         m.retarget(newTarget);
@@ -558,10 +558,10 @@ class PathMonitorTest {
         // After retarget the stall window and ladder are fresh, but only two digs remain.
         stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
         m.onRecoverySuccess();
-        m.onProgress();
+        m.resetProgressForTest();
         stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
         m.onRecoverySuccess();
-        m.onProgress();
+        m.resetProgressForTest();
 
         // Third post-retarget dig attempt must be skipped because the budget is spent.
         stallUntil(m, PathMonitor.Decision.GIVE_UP, true, false);
@@ -569,11 +569,23 @@ class PathMonitorTest {
     }
 
     @Test
-    void retargetPreservesPlacedSupportsAndTeleportFlag() {
-        var placed = new BlockPos(1, 63, 1);
+    void placedSupportsAreCappedAt64() {
         var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
             VerticalRecoverySettings.DEFAULT, true, 0);
-        m.recordPlacedSupport(placed);
+        for (int i = 0; i < PathMonitor.MAX_PLACED_SUPPORTS + 5; i++) {
+            m.recordPlacedSupport(new BlockPos(i, 64, 0), null);
+        }
+        assertEquals(PathMonitor.MAX_PLACED_SUPPORTS, m.placedSupports().size(),
+            "only the first MAX_PLACED_SUPPORTS positions are tracked");
+        assertEquals(new BlockPos(0, 64, 0), m.placedSupports().get(0).pos(), "oldest support kept first");
+    }
+
+    @Test
+    void retargetPreservesPlacedSupportsAndTeleportFlag() {
+        var placed = new PathMonitor.PlacedSupport(new BlockPos(1, 63, 1), null);
+        var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, true, 0);
+        m.recordPlacedSupport(placed.pos(), placed.block());
 
         // With maxDigThrough=0 the ladder skips DIG_THROUGH, hits HOP_TELEPORT and
         // consumes the one-shot teleport flag.
@@ -582,7 +594,7 @@ class PathMonitorTest {
         BlockPos newTarget = new BlockPos(60, 64, 60);
         m.retarget(newTarget);
 
-        assertTrue(m.placedSupports().contains(placed),
+        assertTrue(m.placedSupports().stream().anyMatch(s -> s.pos().equals(placed.pos())),
             "retarget must preserve placed support blocks");
 
         // The ladder restarts from entry, but the teleport flag is already spent, so

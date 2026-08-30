@@ -77,6 +77,12 @@ public final class VerticalTraversalPlanner {
     /**
      * Plans one safe step towards {@code goal}. Returns empty when every adjacent step is
      * blocked, unsafe, or otherwise not preparable in one action.
+     *
+     * @param botPos current bot position
+     * @param goal   target position the step should approach
+     * @param mode   traversal direction (ascend or descend)
+     * @param world  read-only world view used to evaluate candidate cells
+     * @return the prepared next step, or empty if no safe step exists
      */
     public static Optional<Step> nextStep(BlockPos botPos, BlockPos goal, Mode mode, WorldView world) {
         int stepY = botPos.getY() + (mode == Mode.DESCEND ? -1 : 1);
@@ -93,7 +99,7 @@ public final class VerticalTraversalPlanner {
         return HORIZONTAL.stream()
             .map(direction -> new BlockPos(
                 botPos.getX() + direction.getStepX(), stepY, botPos.getZ() + direction.getStepZ()))
-            .sorted(Comparator.comparingInt(candidate -> horizontalDistanceSqr(candidate, goal)))
+            .sorted(Comparator.comparingLong(candidate -> horizontalDistanceSqr(candidate, goal)))
             .map(candidate -> prepare(botPos, goal, mode, world, candidate))
             .filter(step -> step != null)
             .findFirst();
@@ -143,9 +149,9 @@ public final class VerticalTraversalPlanner {
         return new Step(mode, Action.MOVE, standPos, standPos);
     }
 
-    private static int horizontalDistanceSqr(BlockPos a, BlockPos b) {
+    private static long horizontalDistanceSqr(BlockPos a, BlockPos b) {
         int dx = a.getX() - b.getX();
         int dz = a.getZ() - b.getZ();
-        return dx * dx + dz * dz;
+        return (long) dx * dx + (long) dz * dz;
     }
 }
