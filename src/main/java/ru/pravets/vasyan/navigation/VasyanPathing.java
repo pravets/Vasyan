@@ -704,7 +704,9 @@ public final class VasyanPathing {
     /**
      * HOP_TELEPORT (one-shot per monitor instance): finds a safe standing spot around the
      * goal anchor via the {@link VasyanTeleportUtil#findSafePos} ring scan and teleports the
-     * bot there. Reports progress only when the teleport actually happened.
+     * bot there. Because the teleport leaves the old ground path behind, navigation is
+     * stopped and a fresh path is rebuilt towards the goal. Reports progress only when the
+     * teleport actually happened.
      */
     private static void hopTeleport(VasyanEntity vasyan, PathMonitor monitor) {
         String name = vasyan.getVasyanName();
@@ -721,6 +723,10 @@ public final class VasyanPathing {
         VasyanMod.LOGGER.warn("Vasyan '{}': hop-teleported past obstacle to {}",
             name, safe.toShortString());
         monitor.onRecoverySuccess();
+        // One-shot fallback: the old path no longer matches the bot's new position,
+        // so stop the leftover navigation and replan from the teleport destination.
+        vasyan.getNavigation().stop();
+        replan(vasyan, monitor);
     }
 
     /** GIVE_UP: halt navigation; the owning action observes {@code monitor.finished()}. */
