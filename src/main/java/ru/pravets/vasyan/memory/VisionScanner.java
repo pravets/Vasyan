@@ -3,7 +3,9 @@ package ru.pravets.vasyan.memory;
 import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.ClipContext;
@@ -150,9 +152,9 @@ public final class VisionScanner {
      */
     public static List<BlockPos> findVisibleAnyLog(VasyanEntity vasyan) {
         Map<Block, List<BlockPos>> visible = scan(vasyan);
-        List<BlockPos> found = new java.util.ArrayList<>();
+        List<BlockPos> found = new ArrayList<>();
         for (Map.Entry<Block, List<BlockPos>> entry : visible.entrySet()) {
-            if (entry.getKey().builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS)) {
+            if (entry.getKey().builtInRegistryHolder().is(BlockTags.LOGS)) {
                 found.addAll(entry.getValue());
             }
         }
@@ -190,9 +192,13 @@ public final class VisionScanner {
             for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos pos = center.offset(dx, dy, dz);
+                    // Never load chunks synchronously on the server tick
+                    if (!level.hasChunkAt(pos)) {
+                        continue;
+                    }
                     Block block = level.getBlockState(pos).getBlock();
                     boolean match = targets == null
-                        ? block.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS)
+                        ? block.builtInRegistryHolder().is(BlockTags.LOGS)
                         : targets.contains(block);
                     if (match) {
                         found.add(pos);
@@ -203,6 +209,49 @@ public final class VisionScanner {
         return found.stream()
             .sorted(Comparator.comparingDouble(p -> p.distSqr(center)))
             .toList();
+    }
+
+    /**
+     * No-LOS nearby scan for ORES that keeps anti-xray honest: a block is
+     * returned only when it is exposed ({@link #isExposedForMining}) AND has a
+     * passable approach cell next to it ({@link #hasPassableApproach}). This
+     * finds the exposed coal face "just around the corner" that the eye ray
+     * misses against a terrain lip, while buried ore - or ore reachable only
+     * through solid ground - stays invisible.
+     */
+    public static List<BlockPos> findNearbyExposedBlocks(VasyanEntity vasyan, int radius,
+                                                         Set<Block> targets) {
+        Level level = vasyan.level();
+        return findNearbyBlocks(vasyan, radius, targets).stream()
+            .filter(p -> isExposedForMining(level, p, level.getBlockState(p).getBlock()))
+            .filter(p -> hasPassableApproach(level, p))
+            .toList();
+    }
+
+    /**
+     * Whether the bot can physically reach an exposed face of {@code pos}:
+     * some adjacent cell is passable (air/leaves) with passable headroom, so
+     * the bot can stand there and gets a trivial line of sight to the block.
+     * Standing on top of the block counts (UP approach); the DOWN approach
+     * rejects itself because its headroom cell is the block itself.
+     */
+    static boolean hasPassableApproach(Level level, BlockPos pos) {
+        for (Direction dir : Direction.values()) {
+            BlockPos approach = pos.relative(dir);
+            if (!isPassableForVision(level.getBlockState(approach))) {
+                continue;
+            }
+            if (!isPassableForVision(level.getBlockState(approach.above()))) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /** Leaves are transparent/passable for vision purposes, everything solid is not. */
+    private static boolean isPassableForVision(BlockState state) {
+        return !state.isSolid() || state.getBlock() instanceof LeavesBlock;
     }
 
     /**
@@ -291,6 +340,35 @@ public final class VisionScanner {
     }
 
     /**
+     * Line of sight for a mining candidate: ray to the block CENTER first; if
+     * that clips a terrain lip, try a ray to the center of each already-open
+     * (non-solid or leaves) neighbor cell. An ore exposed on a wall just above
+     * the bot is visible through its open face even when the single center ray
+     * grazes the shaft edge (Alex' pit-wall coal). Buried ore gains nothing:
+     * with no open neighbor there is no extra ray, so anti-xray stays intact.
+     */
+    public static boolean hasLineOfSightForMining(VasyanEntity vasyan, BlockPos target, Block block) {
+        if (hasLineOfSight(vasyan, target)) {
+            return true;
+        }
+        if (block.builtInRegistryHolder().is(BlockTags.LOGS)) {
+            return false; // logs: thin trunk through canopy relies on the center ray
+        }
+        Level level = vasyan.level();
+        for (Direction dir : Direction.values()) {
+            BlockPos neighbor = target.relative(dir);
+            BlockState neighborState = level.getBlockState(neighbor);
+            if (neighborState.isSolid() && !(neighborState.getBlock() instanceof LeavesBlock)) {
+                continue; // face not open - no honest ray through it
+            }
+            if (hasLineOfSight(vasyan, neighbor)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Drops the cached scan for a Vasyan (call when the entity is removed/despawned).
      */
     public static void forget(VasyanEntity vasyan) {
@@ -329,25 +407,38 @@ public final class VisionScanner {
         return visible;
     }
 
+    /** Solid blocks that are not ores/logs require an exposed face to be visible.
+     *  Logs are always considered exposed so whole-tree felling can find trunks
+     *  hidden behind canopies; leaves stay transparent and do not block exposure. */
+    public static boolean isExposedForMining(Level level, BlockPos pos, Block block) {
+        if (block.builtInRegistryHolder().is(BlockTags.LOGS)) {
+            return true; // whole-tree felling needs logs even when fully surrounded
+        }
+        for (Direction dir : Direction.values()) {
+            BlockPos neighbor = pos.relative(dir);
+            BlockState state = level.getBlockState(neighbor);
+            if (!state.isSolid() || state.getBlock() instanceof LeavesBlock) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static Map<Block, List<BlockPos>> scanWorld(VasyanEntity vasyan) {
         Level level = vasyan.level();
         BlockPos center = vasyan.blockPosition();
         int radius = VasyanConfig.WORLD_SCAN_RADIUS.get();
         int configuredStep = Math.max(1, VasyanConfig.WORLD_SCAN_STEP.get());
 
-        // Budget guard: auto-increase the effective step so a full scan stays
+        // Budget guard: auto-increase the effective XZ step so a full scan stays
         // within MAX_SCAN_POSITIONS block lookups (no server tick stalls).
-        int step = configuredStep;
-        while (step <= 8) {
-            long positions = (long) Math.pow((2L * radius / step) + 1, 3);
-            if (positions <= MAX_SCAN_POSITIONS) {
-                break;
-            }
-            step *= 2;
-        }
+        // The Y axis is always scanned at step 1: ore veins are vertically thin,
+        // so a coarse Y step makes the bot blind to exposed faces above/below it.
+        int step = effectiveStep(radius, configuredStep);
 
         Map<Block, Set<BlockPos>> candidates = new HashMap<>();
         collectCandidates(level, center, radius, step, candidates);
+        collectVerticalColumn(level, center, radius, candidates);
 
         // Precise pass: block-by-block in the near zone so thin targets
         // (e.g. a single oak log trunk) are never missed close to Vasyan.
@@ -364,6 +455,7 @@ public final class VisionScanner {
         Map<Block, List<BlockPos>> visible = new HashMap<>();
         for (Map.Entry<Block, Set<BlockPos>> entry : candidates.entrySet()) {
             Block block = entry.getKey();
+            boolean isLogTarget = block.builtInRegistryHolder().is(BlockTags.LOGS);
             List<BlockPos> positions = new ArrayList<>(entry.getValue());
 
             positions.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
@@ -373,8 +465,10 @@ public final class VisionScanner {
                     break;
                 }
                 checked++;
-                if (hasLineOfSight(vasyan, pos)) {
-                    visible.computeIfAbsent(block, k -> new ArrayList<>()).add(pos);
+                if (isLogTarget || isExposedForMining(level, pos, block)) {
+                    if (hasLineOfSightForMining(vasyan, pos, block)) {
+                        visible.computeIfAbsent(block, k -> new ArrayList<>()).add(pos);
+                    }
                 }
             }
         }
@@ -387,17 +481,11 @@ public final class VisionScanner {
         int radius = VasyanConfig.WORLD_SCAN_RADIUS.get();
         int configuredStep = Math.max(1, VasyanConfig.WORLD_SCAN_STEP.get());
 
-        int step = configuredStep;
-        while (step <= 8) {
-            long positions = (long) Math.pow((2L * radius / step) + 1, 3);
-            if (positions <= MAX_SCAN_POSITIONS) {
-                break;
-            }
-            step *= 2;
-        }
+        int step = effectiveStep(radius, configuredStep);
 
         Map<Block, Set<BlockPos>> candidates = new HashMap<>();
         collectTargets(level, center, radius, step, targets, candidates);
+        collectVerticalColumn(level, center, radius, candidates);
 
         if (step > 1) {
             int preciseRadius = Math.min(PRECISE_RADIUS, radius);
@@ -405,7 +493,11 @@ public final class VisionScanner {
         }
 
         List<BlockPos> visible = new ArrayList<>();
-        for (Set<BlockPos> positions : candidates.values()) {
+        for (Map.Entry<Block, Set<BlockPos>> entry : candidates.entrySet()) {
+            if (!targets.contains(entry.getKey())) {
+                continue;
+            }
+            Set<BlockPos> positions = entry.getValue();
             List<BlockPos> sorted = new ArrayList<>(positions);
             sorted.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
             int checked = 0;
@@ -414,18 +506,62 @@ public final class VisionScanner {
                     break;
                 }
                 checked++;
-                if (hasLineOfSight(vasyan, pos)) {
-                    visible.add(pos);
+                Block block = level.getBlockState(pos).getBlock();
+                if (block.builtInRegistryHolder().is(BlockTags.LOGS)
+                        || isExposedForMining(level, pos, block)) {
+                    if (hasLineOfSightForMining(vasyan, pos, block)) {
+                        visible.add(pos);
+                    }
                 }
             }
         }
         return visible;
     }
 
-    private static void collectCandidates(Level level, BlockPos center, int radius, int step,
+    private static void collectVerticalColumn(Level level, BlockPos center, int radius,
+                                              Map<Block, Set<BlockPos>> candidates) {
+        // Make sure blocks directly above/below the bot are never skipped by a
+        // coarse grid step. This is cheap: just the center column.
+        for (int dy = -radius; dy <= radius; dy++) {
+            BlockPos pos = center.offset(0, dy, 0);
+            if (!level.hasChunkAt(pos)) {
+                continue;
+            }
+            Block block = level.getBlockState(pos).getBlock();
+            if (block == Blocks.AIR || block == Blocks.CAVE_AIR || block == Blocks.VOID_AIR) {
+                continue;
+            }
+            if (!INTERESTING.contains(block)) {
+                continue;
+            }
+            candidates.computeIfAbsent(block, k -> new LinkedHashSet<>()).add(pos.immutable());
+        }
+    }
+
+    /**
+     * Effective horizontal step for one scan: starts at the configured step and
+     * doubles until the lookup count fits MAX_SCAN_POSITIONS. The estimate is
+     * XZ-area × full Y column, because the Y axis is always scanned at step 1 -
+     * a coarse Y step would skip whole layers and hide exposed ore faces above
+     * or below the bot (the "blind to a cliff-face vein" bug).
+     */
+    static int effectiveStep(int radius, int configuredStep) {
+        int step = Math.max(1, configuredStep);
+        while (step <= 8) {
+            long horizontal = (2L * radius / step) + 1;
+            long positions = horizontal * horizontal * ((2L * radius) + 1);
+            if (positions <= MAX_SCAN_POSITIONS) {
+                break;
+            }
+            step *= 2;
+        }
+        return step;
+    }
+
+    static void collectCandidates(Level level, BlockPos center, int radius, int step,
                                           Map<Block, Set<BlockPos>> candidates) {
         for (int dx = -radius; dx <= radius; dx += step) {
-            for (int dy = -radius; dy <= radius; dy += step) {
+            for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz += step) {
                     BlockPos pos = center.offset(dx, dy, dz);
                     // Never load chunks synchronously on the server tick
@@ -448,7 +584,7 @@ public final class VisionScanner {
     private static void collectTargets(Level level, BlockPos center, int radius, int step,
                                        Set<Block> targets, Map<Block, Set<BlockPos>> candidates) {
         for (int dx = -radius; dx <= radius; dx += step) {
-            for (int dy = -radius; dy <= radius; dy += step) {
+            for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz += step) {
                     BlockPos pos = center.offset(dx, dy, dz);
                     // Never load chunks synchronously on the server tick

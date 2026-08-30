@@ -2,11 +2,14 @@ package ru.pravets.vasyan.chat;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static ru.pravets.vasyan.chat.ChatCommandParser.isAllCommand;
 import static ru.pravets.vasyan.chat.ChatCommandParser.isStayCommand;
 import static ru.pravets.vasyan.chat.ChatCommandParser.normalize;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ChatCommandParserTest {
 
@@ -110,5 +113,45 @@ class ChatCommandParserTest {
         assertFalse(ChatCommandParser.isLookCommand(normalize("lookout")));
         assertFalse(ChatCommandParser.isLookCommand(normalize("look for diamonds")));
         assertFalse(ChatCommandParser.isLookCommand(normalize("")));
+    }
+
+    // ---- parseGoToCommand ----
+
+    @Test
+    void goToCommands() {
+        assertArrayEquals(new int[]{100, 64, -200},
+            ChatCommandParser.parseGoToCommand(normalize("иди к 100 64 -200")));
+        assertArrayEquals(new int[]{0, 64, 0},
+            ChatCommandParser.parseGoToCommand(normalize("go to 0 64 0")));
+        assertArrayEquals(new int[]{-5, 70, 12},
+            ChatCommandParser.parseGoToCommand(normalize("подойди к -5 70 12")));
+
+        // Marker without coordinates stays on the LLM path ("иди ко мне").
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("иди ко мне")));
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("иди к игроку")));
+        // Not a goto at all.
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("gather 50 wood")));
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("")));
+        assertNull(ChatCommandParser.parseGoToCommand(null));
+    }
+
+    @Test
+    void goToCommandRejectsOutOfRangeCoordinates() {
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 30000001 64 0")),
+            "X beyond 30 000 000 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 0 64 30000001")),
+            "Z beyond 30 000 000 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to -30000001 64 0")),
+            "negative X beyond -30 000 000 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 0 -65 0")),
+            "Y below -64 must be rejected");
+        assertNull(ChatCommandParser.parseGoToCommand(normalize("go to 0 320 0")),
+            "Y above 319 must be rejected");
+
+        // Exact boundaries are accepted.
+        assertArrayEquals(new int[]{30_000_000, 319, -30_000_000},
+            ChatCommandParser.parseGoToCommand(normalize("go to 30000000 319 -30000000")));
+        assertArrayEquals(new int[]{-30_000_000, -64, 30_000_000},
+            ChatCommandParser.parseGoToCommand(normalize("go to -30000000 -64 30000000")));
     }
 }

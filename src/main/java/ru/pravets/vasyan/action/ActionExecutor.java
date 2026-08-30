@@ -275,6 +275,32 @@ public class ActionExecutor {
 
         VasyanMod.LOGGER.info("Vasyan '{}' queued {} tasks", vasyan.getVasyanName(), taskQueue.size());
     }
+
+    /**
+     * Queues a deterministic task without any LLM round-trip (used by
+     * pre-triggered commands such as "иди к X Y Z" -> pathfind). Cancels the
+     * current action and pending queue first, mirroring the natural-language
+     * path's semantics of one active command per bot.
+     */
+    public void executeDirectTask(Task task) {
+        if (currentAction != null) {
+            currentAction.cancel();
+            currentAction = null;
+        }
+        if (idleFollowAction != null) {
+            idleFollowAction.cancel();
+            idleFollowAction = null;
+        }
+        // An in-flight async LLM plan would later append its tasks behind (or
+        // clash with) this direct command - cancel it first.
+        cancelPlanning();
+        setStaying(false);
+        taskQueue.clear();
+        taskQueue.add(task);
+        currentGoal = task.getAction() + " (direct command)";
+        vasyan.getMemory().setCurrentGoal(currentGoal);
+        VasyanMod.LOGGER.info("Vasyan '{}' queued direct task: {}", vasyan.getVasyanName(), task);
+    }
     
     /**
      * Send a message to the GUI pane (client-side only, no chat spam)

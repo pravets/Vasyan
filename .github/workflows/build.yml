@@ -53,4 +53,4 @@ jobs:
       - name: Create GitHub Release
         run: gh release create "$GITHUB_REF_NAME" *.jar --generate-notes
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -67,10 +68,26 @@ public class LLMFallbackHandler {
         "{\"reasoning\":\"[Fallback] Idle action detected\",\"plan\":\"Stay near the player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}"
     );
 
-    // Default response when no pattern matches. Public: ProviderChainClient
-    // synthesizes the same all-dead answer without instantiating a handler.
+    // Default response when no pattern matches.
     public static final String DEFAULT_FALLBACK_RESPONSE =
         "{\"reasoning\":\"[Fallback] No pattern matched\",\"plan\":\"Stay near the player\",\"tasks\":[{\"action\":\"follow\",\"parameters\":{\"player\":\"USE_NEARBY_PLAYER_NAME\"}}]}";
+
+    /** Marker separating the situation block from the current user request. */
+    private static final String CURRENT_REQUEST_MARKER = "CURRENT REQUEST:";
+
+    // Resource-specific fallback patterns must only match the current request,
+    // not the situation block that can mention coal/wood incidentally.
+    private static final Pattern COAL_PATTERN = Pattern.compile(
+        "(?i).*(mine|dig|collect|gather|добудь|накопай|собери).*"
+            + "(\\d+)?\\s*(coal|уг[оа]л[ьяе]?)s?.*", Pattern.DOTALL);
+    private static final Pattern COAL_QTY_PATTERN = Pattern.compile(
+        "(\\d+)\\s*(coal|уг[оа]л[ьяе]?)s?", Pattern.DOTALL);
+    private static final Pattern WOOD_PATTERN = Pattern.compile(
+        "(?i).*(копай|копать|руби|рубить|добудь|накопай|собери|наруби|нарезать|gather|chop|collect).*"
+            + "(\\d+)?\\s*"
+            + "(дерев|wood|бр[её]вн|б[её]вен|лес|дров|log)s?.*");
+    private static final Pattern WOOD_QTY_PATTERN = Pattern.compile(
+        "(\\d+)\\s*(дерев|wood|бр[её]вн|б[её]вен|лес|дров|log)s?");
 
     /**
      * Generates a fallback response based on pattern matching.
@@ -157,20 +174,40 @@ public class LLMFallbackHandler {
         }
 
         String lowerPrompt = prompt.toLowerCase();
+        String scope = matchingScope(prompt).toLowerCase();
+
+        // Coal gathering keeps the exact requested resource so behavior tests and offline
+        // play do not silently turn a coal request into generic iron mining.
+        Matcher coal = COAL_PATTERN.matcher(scope);
+        if (coal.matches()) {
+            // Take the quantity that immediately precedes the resource word
+            // (e.g. "gather 1 coal" / "добудь 3 угля"), NOT the first number
+            // anywhere in the prompt - the situation block is full of
+            // coordinates that would otherwise be mistaken for the quantity.
+            int qty = 1;
+            Matcher coalQty = COAL_QTY_PATTERN.matcher(scope);
+            if (coalQty.find()) {
+                try {
+                    qty = Integer.parseInt(coalQty.group(1));
+                } catch (NumberFormatException ignored) {
+                    // keep default
+                }
+            }
+            LOGGER.info("Fallback -> gather coal x{}", qty);
+            return "{\"reasoning\":\"[Fallback] Coal gathering detected\",\"plan\":\"Gather coal\","
+                + "\"tasks\":[{\"action\":\"gather\",\"parameters\":{\"resource\":\"coal\",\"quantity\":" + qty + "}}]}";
+        }
 
         // Wood/tree gathering, RU + EN, with an optional quantity:
         // "накопай 100 дерева" / "руби берёзу" / "chop 20 wood". Falls back
         // to gather-any-log (wood) instead of the generic "follow" default.
-        java.util.regex.Matcher wood = java.util.regex.Pattern.compile(
-            "(?i).*(копай|копать|руби|рубить|добудь|накопай|собери|наруби|нарезать|gather|chop|collect).*"
-            + "(\\d+)?\\s*"
-            + "(дерев|wood|бр[её]вн|б[её]вен|лес|дров|log)s?.*").matcher(lowerPrompt);
+        Matcher wood = WOOD_PATTERN.matcher(scope);
         if (wood.matches()) {
             int qty = 50;
-            java.util.regex.Matcher num = java.util.regex.Pattern.compile("\\d+").matcher(lowerPrompt);
-            if (num.find()) {
+            Matcher woodQty = WOOD_QTY_PATTERN.matcher(scope);
+            if (woodQty.find()) {
                 try {
-                    qty = Integer.parseInt(num.group());
+                    qty = Integer.parseInt(woodQty.group(1));
                 } catch (NumberFormatException ignored) {
                     // keep default
                 }
@@ -189,6 +226,27 @@ public class LLMFallbackHandler {
 
         LOGGER.debug("No pattern matched, using default response");
         return DEFAULT_FALLBACK_RESPONSE;
+    }
+
+    /**
+     * Returns the portion of the prompt that should be used for resource-specific
+     * pattern matching: the tail after "CURRENT REQUEST:" if present, otherwise
+     * the whole prompt. This prevents the situation block from triggering false
+     * resource fallbacks (e.g. mentioning "coal_ore" in the situation while the
+     * actual request is "gather 10 iron").
+     *
+     * @param prompt the original prompt
+     * @return the scoped text to match against
+     */
+    private static String matchingScope(String prompt) {
+        if (prompt == null) {
+            return "";
+        }
+        int index = prompt.toLowerCase().indexOf(CURRENT_REQUEST_MARKER.toLowerCase());
+        if (index < 0) {
+            return prompt;
+        }
+        return prompt.substring(index + CURRENT_REQUEST_MARKER.length());
     }
 
     private String truncatePrompt(String prompt, int maxLength) {

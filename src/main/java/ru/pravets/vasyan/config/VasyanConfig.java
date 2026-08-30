@@ -56,8 +56,8 @@ public class VasyanConfig {
         var parser = new com.electronwill.nightconfig.toml.TomlParser();
         // Parse errors propagate to the dedicated catch below. The Reader is
         // closed BEFORE any Files.move there - an open handle would block the
-        // rename on Windows. A transient IOException is NOT quarantined: it
-        // is logged and the valid config stays untouched.
+        // rename on Windows. A transient IOException is NOT quarantined: it is
+        // logged and the valid config stays untouched.
         try (var reader = java.nio.file.Files.newBufferedReader(file)) {
             parser.parse(reader);
             return; // config parses fine - nothing to do
@@ -121,6 +121,18 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_SEARCH_TIMEOUT;
     public static final ForgeConfigSpec.IntValue GATHER_RING_SPACING;
     public static final ForgeConfigSpec.IntValue GATHER_STATIONS_PER_RING;
+    public static final ForgeConfigSpec.IntValue GATHER_MEMORY_TTL_TICKS;
+    public static final ForgeConfigSpec.IntValue GATHER_MEMORY_RADIUS;
+    public static final ForgeConfigSpec.IntValue GATHER_LEAF_DIG_MAX_DEPTH;
+    public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
+    public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
+    public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
+    public static final ForgeConfigSpec.BooleanValue NAV_HOP_TELEPORT_ENABLED;
+    public static final ForgeConfigSpec.BooleanValue NAV_VERTICAL_RECOVERY_ENABLED;
+    public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_MAX_DISTANCE;
+    public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE;
+    public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS;
+    public static final ForgeConfigSpec.IntValue NAV_DIG_THROUGH_MAX;
     public static final ForgeConfigSpec.IntValue ACTION_TICK_DELAY;
     public static final ForgeConfigSpec.BooleanValue ENABLE_CHAT_RESPONSES;
     public static final ForgeConfigSpec.IntValue MAX_ACTIVE_VASYANS;
@@ -225,7 +237,9 @@ public class VasyanConfig {
             .defineInRange("scanRadius", 32, 8, 64);
 
         WORLD_SCAN_STEP = builder
-            .comment("Scan grid step (1 = every block, 2 = every other block).",
+            .comment("Horizontal scan grid step (1 = every column, 2 = every other column).",
+                "The Y axis is always scanned at step 1: ore veins are vertically thin,",
+                "so a coarse Y step would hide exposed faces above/below the bot.",
                 "Lower = more precise but slower. 2 is fine for finding trees/ores/chests.")
             .defineInRange("scanStep", 2, 1, 8);
 
@@ -256,6 +270,82 @@ public class VasyanConfig {
         GATHER_STATIONS_PER_RING = builder
             .comment("Look-out stations per ring")
             .defineInRange("stationsPerRing", 8, 4, 16);
+
+        GATHER_MEMORY_TTL_TICKS = builder
+            .comment("How many ticks empty/unreachable zones are remembered per resource")
+            .defineInRange("memoryTtlTicks", 24000, 6000, 720000);
+
+        GATHER_MEMORY_RADIUS = builder
+            .comment("Radius in which a remembered empty zone blocks a new station")
+            .defineInRange("memoryRadius", 8, 2, 32);
+
+        GATHER_LEAF_DIG_MAX_DEPTH = builder
+            .comment("Maximum leaves a tree route may dig through before giving up.",
+                "Mangrove canopies can be more than four blocks deep, so this budget",
+                "is larger than the generic tunnel cap. It applies only to routes",
+                "towards a log target; all other routes keep digThroughMaxDepth.")
+            .defineInRange("leafDigMaxDepth", 12, 0, 64);
+
+        builder.pop();
+
+        builder.comment("Vasyan Navigation (pathfinding) Configuration",
+            "Budgets applied to every pathfinding attempt so a stuck bot cannot burn ticks forever.",
+            "thinkTimeoutMs caps the time from attempt start until the bot first moves (planning only;",
+            "once moving, the monitor's stall/replan/ladder budgets govern the journey).",
+            "tickTimeoutMs caps each per-tick pathfinding slice,",
+            "searchRadius limits how far around the bot a route may be searched.")
+            .push("navigation");
+
+        /**
+         * Total think budget in milliseconds for one pathfinding attempt (planning only).
+         */
+        NAV_THINK_TIMEOUT_MS = builder
+            .comment("Total time budget in milliseconds for one pathfinding attempt")
+            .defineInRange("thinkTimeoutMs", 2000, 250, 30000);
+
+        /**
+         * Per-tick slice in milliseconds the pathfinder may run before yielding.
+         */
+        NAV_TICK_TIMEOUT_MS = builder
+            .comment("Per-tick slice in milliseconds the pathfinder may run before yielding")
+            .defineInRange("tickTimeoutMs", 10, 1, 50);
+
+        /**
+         * Maximum distance in blocks to search for a route around the bot.
+         */
+        NAV_SEARCH_RADIUS = builder
+            .comment("Maximum distance in blocks to search for a route")
+            .defineInRange("searchRadius", 64, 16, 256);
+
+        NAV_HOP_TELEPORT_ENABLED = builder
+            .comment("Allow the legacy emergency hop-teleport after dig/scaffold recovery fails.",
+                "Disabled by default: recovery should dig, place and climb honestly.")
+            .define("hopTeleportEnabled", false);
+
+        NAV_VERTICAL_RECOVERY_ENABLED = builder
+            .comment("Build safe staircase steps when a goal is above/below the bot")
+            .define("verticalRecoveryEnabled", true);
+
+        NAV_VERTICAL_RECOVERY_MAX_DISTANCE = builder
+            .comment("Maximum absolute Y difference vertical recovery will attempt")
+            .defineInRange("verticalRecoveryMaxDistance", 16, 2, 64);
+
+        NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE = builder
+            .comment("Maximum horizontal Chebyshev distance at which downward recovery may run")
+            .defineInRange("verticalRecoveryHorizontalRange", 6, 2, 32);
+
+        NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS = builder
+            .comment("Maximum scaffold blocks one vertical recovery may place")
+            .defineInRange("verticalRecoveryMaxScaffoldBlocks", 32, 1, 128);
+
+        NAV_DIG_THROUGH_MAX = builder
+            .comment("Maximum tunnel depth in blocks a single route may dig through before the recovery",
+                "ladder stops digging and moves on to scaffold/give-up. Caps horizontal",
+                "tunneling: a thin wall (1-3 blocks) is dug through, a mountain is not.",
+                "Each forward step of the tunnel spends one unit of depth; the step breaks",
+                "the foot-and-head corridor. Vertical staircase recovery has its own scaffold",
+                "budget and is unaffected.")
+            .defineInRange("digThroughMaxDepth", 4, 0, 64);
 
         builder.pop();
 
@@ -288,8 +378,7 @@ public class VasyanConfig {
 
         VOICE_ENABLED = builder
             .comment("Enable voice commands (requires a microphone and an STT endpoint)",
-                "Disabled by default: audio leaves the client and reaches the configured",
-                "STT endpoint - enable explicitly after setting sttApiKey")
+                "Disabled by default: audio leaves the client and reaches the configured STT endpoint - enable explicitly after setting sttApiKey")
             .define("enabled", false);
 
         STT_BASE_URL = builder
@@ -299,11 +388,11 @@ public class VasyanConfig {
             .define("sttBaseUrl", "https://routerai.ru/api/v1");
 
         STT_API_KEY = builder
-            .comment("API key for the STT endpoint (stored server-side only)")
+            .comment("API key for the STT endpoint (stored server-side only).")
             .define("sttApiKey", "");
 
         STT_MODEL = builder
-            .comment("STT model name (any model your endpoint supports)")
+            .comment("Model name for the STT endpoint (stored server-side only).")
             .define("sttModel", "openai/whisper-large-v3-turbo");
 
         STT_LANGUAGE = builder

@@ -8,9 +8,9 @@ jobs:
   behavior:
     name: Behavior tests (headless server)
     runs-on: ubuntu-latest
-    # Two server starts (force-load scenario + restart scenario) plus Forge boot
-    # time need a generous but bounded timeout.
-    timeout-minutes: 30
+    # Three server starts (force-load scenario + restart scenario + pathfinding scenarios)
+    # plus Forge boot time need a generous but bounded timeout.
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -56,3 +56,4 @@ jobs:
           path: |
             /tmp/fgtest/behavior.log
             /tmp/fgtest/behavior_restart.log
+            /tmp/fgtest/behavior_nav.log
