@@ -67,7 +67,7 @@ public final class PathMonitor {
     /** Default cap on DIG_THROUGH blocks per route (anti-tunneling). */
     public static final int DEFAULT_MAX_DIG_THROUGH = 4;
 
-    private final VasyanGoal goal;
+    private VasyanGoal goal;
     private final int stallTicks;
     private final int maxReplans;
     private final int navDoneReplans;
@@ -302,6 +302,31 @@ public final class PathMonitor {
     /** Goal this monitor drives towards. */
     public VasyanGoal goal() {
         return goal;
+    }
+
+    /**
+     * Retargets the monitor to a new anchor without resetting lifetime recovery budgets.
+     *
+     * <p>The new goal is a {@link GoalNear} around {@code newAnchor} reusing the original
+     * range. Stall/replan counters are reset so the new route gets a fresh window, while
+     * {@code digThroughUsed}, the one-shot teleport flag and placed supports are preserved
+     * to stop a chasing bot from tunneling forever past its dig budget.</p>
+     *
+     * @param newAnchor new target block to route towards
+     * @throws IllegalStateException if the current goal is not a {@link GoalNear}
+     */
+    public void retarget(BlockPos newAnchor) {
+        if (!(goal instanceof GoalNear near)) {
+            throw new IllegalStateException(
+                "retarget only supports GoalNear goals, got: " + goal.describe());
+        }
+        this.goal = new GoalNear(newAnchor, near.rangeBlocks());
+        this.step = Step.LADDER_ENTRY;
+        this.lastStallPos = null;
+        this.stallCounter = 0;
+        this.navDoneStallCounter = 0;
+        this.replansUsed = 0;
+        this.navDoneReplansUsed = 0;
     }
 
     /** Navigation speed replans should steer at (combat/follow keep their pace). */

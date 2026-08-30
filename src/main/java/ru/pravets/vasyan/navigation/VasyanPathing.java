@@ -266,8 +266,18 @@ public final class VasyanPathing {
         }
     }
 
-    /** REPLAN: back to ground movement and rebuild the path to the goal anchor. */
-    private static void replan(VasyanEntity vasyan, PathMonitor monitor) {
+    /**
+     * Recomputes and starts a fresh ground path towards the monitor's current goal anchor.
+     *
+     * <p>Steers the bot to the anchor resolved from {@link PathMonitor#goal()} at
+     * {@link PathMonitor#navSpeed()}, disables flight, and preserves an active
+     * building-invulnerability flag. Callers such as {@code CombatAction} use this to
+     * re-route without replacing the monitor, keeping lifetime recovery budgets intact.</p>
+     *
+     * @param vasyan  bot to steer
+     * @param monitor monitor whose goal and speed drive the new path
+     */
+    public static void replan(VasyanEntity vasyan, PathMonitor monitor) {
         BlockPos target = VasyanGoal.anchor(monitor.goal(), vasyan.blockPosition());
         steerTo(vasyan, target, monitor.navSpeed());
         VasyanMod.LOGGER.debug("Vasyan '{}': REPLAN towards {} ({})",

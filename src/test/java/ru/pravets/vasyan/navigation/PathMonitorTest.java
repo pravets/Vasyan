@@ -493,4 +493,56 @@ class PathMonitorTest {
             "maxDigThrough=0 must skip digging and (no place/teleport) give up honestly");
         assertTrue(m.finished());
     }
+
+    @Test
+    void retargetPreservesDigThroughBudgetAndResetsStallWindow() {
+        var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, false, 4);
+
+        // Consume two dig-through budgets with real progress between digs.
+        stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
+        m.onRecoverySuccess();
+        m.onProgress();
+        stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
+        m.onRecoverySuccess();
+        m.onProgress();
+
+        BlockPos newTarget = new BlockPos(60, 64, 60);
+        m.retarget(newTarget);
+
+        // After retarget the stall window and ladder are fresh, but only two digs remain.
+        stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
+        m.onRecoverySuccess();
+        m.onProgress();
+        stallUntil(m, PathMonitor.Decision.DIG_THROUGH, true, true);
+        m.onRecoverySuccess();
+        m.onProgress();
+
+        // Third post-retarget dig attempt must be skipped because the budget is spent.
+        stallUntil(m, PathMonitor.Decision.GIVE_UP, true, false);
+        assertTrue(m.finished());
+    }
+
+    @Test
+    void retargetPreservesPlacedSupportsAndTeleportFlag() {
+        var placed = new BlockPos(1, 63, 1);
+        var m = new PathMonitor(VasyanGoal.near(TARGET, 2), 1, 0, 0, 1.0,
+            VerticalRecoverySettings.DEFAULT, true, 0);
+        m.recordPlacedSupport(placed);
+
+        // With maxDigThrough=0 the ladder skips DIG_THROUGH, hits HOP_TELEPORT and
+        // consumes the one-shot teleport flag.
+        stallUntil(m, PathMonitor.Decision.HOP_TELEPORT, false, false);
+
+        BlockPos newTarget = new BlockPos(60, 64, 60);
+        m.retarget(newTarget);
+
+        assertTrue(m.placedSupports().contains(placed),
+            "retarget must preserve placed support blocks");
+
+        // The ladder restarts from entry, but the teleport flag is already spent, so
+        // the second climb through the ladder ends in GIVE_UP.
+        stallUntil(m, PathMonitor.Decision.GIVE_UP, false, false);
+        assertTrue(m.finished());
+    }
 }

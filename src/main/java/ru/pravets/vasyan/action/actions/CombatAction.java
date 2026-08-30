@@ -30,6 +30,8 @@ public class CombatAction extends BaseAction {
     private static final double ATTACK_RANGE = 3.5;
     /** Navigation speed while approaching (matches the old pre-monitor trot). */
     private static final double COMBAT_NAV_SPEED = 2.5;
+    /** Re-route only when the target has moved more than 4 blocks from the last routed position. */
+    private static final double RETARGET_DISTANCE_SQ = 16.0;
 
     private PathMonitor routeMonitor;
     private PathBudgets routeBudgets;
@@ -100,8 +102,23 @@ public class CombatAction extends BaseAction {
 
         // Approach phase: monitor-driven movement toward the target's block.
         BlockPos targetBlock = target.blockPosition();
-        if (!targetBlock.equals(routeTargetPos)) {
+        if (routeMonitor == null || routeTargetPos == null) {
             startRoute(targetBlock);
+        } else if (targetBlock.distSqr(routeTargetPos) > RETARGET_DISTANCE_SQ) {
+            routeMonitor.retarget(targetBlock);
+            routeTargetPos = targetBlock;
+            routeStartPos = vasyan.blockPosition();
+            routeBudgets = PathBudgets.startInTicks(vasyan.level().getGameTime(),
+                ru.pravets.vasyan.config.VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
+                ru.pravets.vasyan.config.VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),
+                ru.pravets.vasyan.config.VasyanConfig.NAV_SEARCH_RADIUS.get());
+            boolean wasInvulnerable = vasyan.isInvulnerable();
+            VasyanPathing.replan(vasyan, routeMonitor);
+            // replan() calls setFlying(false), which clears building-invulnerability;
+            // restore it so combat keeps protection across a re-route.
+            if (wasInvulnerable) {
+                vasyan.setInvulnerableBuilding(true);
+            }
         }
 
         if (routeMonitor != null && routeBudgets != null) {
