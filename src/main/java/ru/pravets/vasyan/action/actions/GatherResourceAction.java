@@ -50,7 +50,10 @@ import java.util.Set;
  * <p><b>Routing on PathMonitor:</b> the whole ROUTING phase is delegated to
  * {@link ru.pravets.vasyan.navigation.PathMonitor} + {@link ru.pravets.vasyan.navigation.VasyanPathing}
  * - replans, dig-through, scaffolding and hop-teleports are monitor decisions,
- * so this action keeps no local stall counters for movement anymore.</p>
+ * so this action keeps no local stall counters for movement anymore.
+ * A routing give-up that happens while the bot is in water is intentionally
+ * kept local to this action only; the old "fish out" teleport was removed
+ * so that temporary drowning obstacles do not poison global resource memory.</p>
  */
 public class GatherResourceAction extends BaseAction {
 
@@ -506,10 +509,16 @@ public class GatherResourceAction extends BaseAction {
 
         // Monitor gave up after exhausting its recovery ladder (replans,
         // dig-through, scaffold, hop-teleport): skip this target exactly as
-        // the old repeated-stall path did.
+        // the old repeated-stall path did. A give-up while the bot is in water
+        // is treated as local-only: we deliberately do not teleport out of
+        // water, so the failure must not poison global unreachable memory.
         if (routeMonitor.finished()) {
             debugLog("ROUTING", "path monitor gave up on " + routeGoal.describe());
-            skipCurrentRouteTarget();
+            if (shouldKeepLocalOnly(true, vasyan.isInWater())) {
+                skipCurrentRouteTarget(true);
+            } else {
+                skipCurrentRouteTarget();
+            }
             return;
         }
 
@@ -538,20 +547,49 @@ public class GatherResourceAction extends BaseAction {
     }
 
     /**
+     * Pure helper: a routing give-up that happens while the bot is in water must
+     * only be remembered locally. The old "fish out" teleport was intentionally
+     * removed as part of the pathfinding-hygiene refactor; without it, a drowned
+     * give-up is a temporary local obstacle, not evidence that the target is
+     * globally unreachable.
+     *
+     * @param monitorGaveUp true when {@link PathMonitor#finished()} is true
+     * @param botInWater  true when {@link VasyanEntity#isInWater()} is true
+     * @return true when the failure must stay in this action's local skip set
+     */
+    static boolean shouldKeepLocalOnly(boolean monitorGaveUp, boolean botInWater) {
+        return monitorGaveUp && botInWater;
+    }
+
+    /**
      * Routing failure exit for the CURRENT target: blacklists an unreachable
      * resource block (so the next scan does not pick the SAME block again)
      * or just moves on to the next station, keeping every fell-mode handoff
      * intact.
      */
     private void skipCurrentRouteTarget() {
+        skipCurrentRouteTarget(false);
+    }
+
+    /**
+     * Routing failure exit for the CURRENT target. When {@code localOnly} is
+     * true, the target is remembered only in this action's local unreachable
+     * set and never poisons {@link GlobalResourceMemory}. This is used when the
+     * bot gives up while in water: without the old fish-out teleport, the failure
+     * is local, not global.
+     */
+    private void skipCurrentRouteTarget(boolean localOnly) {
         vasyan.getNavigation().stop();
         ResourceKey<Level> dimension = vasyan.level().dimension();
         long now = vasyan.level().getGameTime();
         if (mineTarget != null && routeTarget.equals(mineTarget)) {
             rememberUnreachable(mineTarget);
-            GlobalResourceMemory.rememberUnreachable(memoryKey, dimension, mineTarget, now);
+            if (!localOnly) {
+                GlobalResourceMemory.rememberUnreachable(memoryKey, dimension, mineTarget, now);
+            }
             rememberVerticalTrap(mineTarget);
-            debugLog("ROUTING", "target unreachable, skipping " + mineTarget);
+            debugLog("ROUTING", "target unreachable" + (localOnly ? " (water, local only)" : "")
+                + ", skipping " + mineTarget);
             mineTarget = null;
             if (fellGatheringMaterial) {
                 phase = Phase.FELL_GATHER; // re-pick another material block
@@ -564,9 +602,11 @@ public class GatherResourceAction extends BaseAction {
                 continueFellCleanup();
                 return;
             }
-        } else {
+        } else if (!localOnly) {
             debugLog("ROUTING", "station unreachable, next station");
             GlobalResourceMemory.rememberEmptyStation(memoryKey, dimension, routeTarget, now);
+        } else {
+            debugLog("ROUTING", "station unreachable in water, skipping without global memory");
         }
         veinTargets.clear();
         phase = Phase.SEARCH; // next station / other candidate

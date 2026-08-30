@@ -40,4 +40,16 @@ class GatherResourceActionTest extends AbstractMinecraftTest {
             GatherResourceAction.recoveryPolicyFor(false, false),
             "look-out stations keep the full ladder (dig budget caps tunnels)");
     }
+
+    @Test
+    void waterGiveUpShouldBeRememberedLocallyOnly() {
+        assertTrue(GatherResourceAction.shouldKeepLocalOnly(true, true),
+            "a routing give-up while the bot is in water must stay local, "
+                + "because the old fish-out teleport was intentionally removed");
+        assertFalse(GatherResourceAction.shouldKeepLocalOnly(true, false),
+            "a give-up on dry land must still feed global memory as before");
+        assertFalse(GatherResourceAction.shouldKeepLocalOnly(false, true),
+            "no actual give-up means nothing needs to be skipped at all");
+        assertFalse(GatherResourceAction.shouldKeepLocalOnly(false, false));
+    }
 }
