@@ -40,6 +40,19 @@ public interface VasyanGoal {
     }
 
     /**
+     * Creates a goal reached when the bot is horizontally within {@code rangeBlocks} of the
+     * target, ignoring Y ({@code max(|dx|, |dz|)} <= range). For look-out stations whose
+     * Y is a phantom height and should not affect arrival on sloped terrain.
+     *
+     * @param target      target block position
+     * @param rangeBlocks inclusive horizontal range in blocks on X and Z
+     * @return horizontal proximity goal for {@code target}
+     */
+    static VasyanGoal horizontalNear(BlockPos target, int rangeBlocks) {
+        return new GoalHorizontalNear(target, rangeBlocks);
+    }
+
+    /**
      * Creates a goal reached only when the bot stands beside the block: manhattan XZ
      * distance == 1 with equal Y. Standing ON TOP of the block is NOT adjacency.
      *
@@ -89,6 +102,9 @@ public interface VasyanGoal {
      */
     static BlockPos anchor(VasyanGoal goal, BlockPos botPos) {
         if (goal instanceof GoalNear near) {
+            return near.target();
+        }
+        if (goal instanceof GoalHorizontalNear near) {
             return near.target();
         }
         if (goal instanceof GoalAdjacent adjacent) {

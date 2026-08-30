@@ -446,13 +446,15 @@ public class GatherResourceAction extends BaseAction {
         // the replacement of the old per-target stall-state reset. A mine
         // target uses near() 3D-Chebyshev so ore/wood above or below the bot's
         // feet are reachable (strict side-adjacency would make those unreachable);
-        // a look-out station is reached within a small radius.
+        // a look-out station uses horizontalNear() because its Y is a phantom
+        // height (origin + STATION_HEIGHT_OFFSET), so 3D Chebyshev would be
+        // unreachable on any slope > range and poison global memory.
         if (!routeTarget.equals(lastRouteTarget)) {
             lastRouteTarget = routeTarget;
             routeStartPos = vasyan.blockPosition();
             routeGoal = routeTarget.equals(mineTarget)
                 ? VasyanGoal.near(routeTarget, 1)
-                : VasyanGoal.near(routeTarget, STATION_GOAL_RANGE);
+                : VasyanGoal.horizontalNear(routeTarget, STATION_GOAL_RANGE);
             routeBudgets = PathBudgets.start(System.nanoTime(),
                 VasyanConfig.NAV_THINK_TIMEOUT_MS.get(),
                 VasyanConfig.NAV_TICK_TIMEOUT_MS.get(),

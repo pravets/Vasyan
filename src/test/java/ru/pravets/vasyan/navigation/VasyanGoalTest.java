@@ -105,7 +105,32 @@ class VasyanGoalTest {
                 () -> assertFalse(VasyanGoal.adjacent(ORIGIN).describe().isBlank()),
                 () -> assertFalse(VasyanGoal.xz(1, 2).describe().isBlank()),
                 () -> assertFalse(VasyanGoal.y(64).describe().isBlank()),
-                () -> assertFalse(VasyanGoal.any(VasyanGoal.y(64)).describe().isBlank())
+                () -> assertFalse(VasyanGoal.any(VasyanGoal.y(64)).describe().isBlank()),
+                () -> assertFalse(VasyanGoal.horizontalNear(ORIGIN, 3).describe().isBlank())
         );
+    }
+
+    @Test
+    void horizontalNearIgnoresHeight() {
+        var goal = VasyanGoal.horizontalNear(ORIGIN, 3);
+        assertTrue(goal.hasReached(new BlockPos(10, 54, 10)));
+        assertTrue(goal.hasReached(new BlockPos(10, 74, 10)));
+    }
+
+    @Test
+    void horizontalNearAtExactRangeBoundaryIsReached() {
+        var goal = VasyanGoal.horizontalNear(ORIGIN, 3);
+        assertTrue(goal.hasReached(new BlockPos(13, 64, 13)));
+    }
+
+    @Test
+    void horizontalNearOutsideRangeIsNotReached() {
+        var goal = VasyanGoal.horizontalNear(ORIGIN, 3);
+        assertFalse(goal.hasReached(new BlockPos(14, 64, 10)));
+    }
+
+    @Test
+    void horizontalNearRejectsNegativeRange() {
+        assertThrows(IllegalArgumentException.class, () -> VasyanGoal.horizontalNear(ORIGIN, -1));
     }
 }
