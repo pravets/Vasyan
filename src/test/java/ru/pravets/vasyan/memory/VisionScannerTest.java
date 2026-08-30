@@ -3,9 +3,12 @@ package ru.pravets.vasyan.memory;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.testutil.AbstractMinecraftTest;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -15,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -197,5 +201,32 @@ class VisionScannerTest extends AbstractMinecraftTest {
         // A huge radius still doubles until the estimate fits the 100k budget.
         assertTrue(VisionScanner.effectiveStep(64, 1) >= 2,
             "the budget guard still grows the step when the estimate exceeds 100k");
+    }
+
+    @Test
+    void scanTargetsVerticalColumnRespectsRequestedTargets() {
+        // A non-INTERESTING target (stone) should not be polluted by COAL_ORE
+        // that collectVerticalColumn added just because coal is "interesting".
+        BlockPos center = new BlockPos(0, 64, 0);
+        BlockPos coal = center.above();
+
+        BlockState stone = solid(Blocks.STONE);
+        BlockState coalOre = solid(Blocks.COAL_ORE);
+        BlockState air = open();
+
+        Level level = mock(Level.class);
+        when(level.hasChunkAt(any())).thenReturn(true);
+        when(level.getBlockState(any())).thenReturn(stone);
+        when(level.getBlockState(center)).thenReturn(air);
+        when(level.getBlockState(coal)).thenReturn(coalOre);
+        when(level.clip(any())).thenReturn(BlockHitResult.miss(Vec3.ZERO, Direction.UP, BlockPos.ZERO));
+
+        VasyanEntity vasyan = vasyanAt(level, center);
+        when(vasyan.getEyePosition(anyFloat())).thenReturn(Vec3.atCenterOf(center).add(0, 1.5, 0));
+
+        List<BlockPos> found = VisionScanner.findVisible(vasyan, Set.of(Blocks.STONE));
+
+        assertFalse(found.contains(coal),
+            "vertical column scan must not return blocks outside the requested target set");
     }
 }

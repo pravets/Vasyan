@@ -489,7 +489,11 @@ public final class VisionScanner {
         }
 
         List<BlockPos> visible = new ArrayList<>();
-        for (Set<BlockPos> positions : candidates.values()) {
+        for (Map.Entry<Block, Set<BlockPos>> entry : candidates.entrySet()) {
+            if (!targets.contains(entry.getKey())) {
+                continue;
+            }
+            Set<BlockPos> positions = entry.getValue();
             List<BlockPos> sorted = new ArrayList<>(positions);
             sorted.sort(Comparator.comparingDouble(p -> p.distSqr(center)));
             int checked = 0;
