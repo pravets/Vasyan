@@ -135,11 +135,34 @@ class VasyanGoalTest {
     }
 
     @Test
-    void horizontalNearAnchorUsesBotY() {
-        // Station target Y is a phantom height; anchor must keep current bot Y.
-        var target = new BlockPos(20, 200, 20);
-        var botPos = new BlockPos(10, 64, 10);
-        BlockPos anchor = VasyanGoal.anchor(VasyanGoal.horizontalNear(target, 3), botPos);
-        assertEquals(new BlockPos(20, 64, 20), anchor);
+    void anchorPicksNearestSubGoalInComposite() {
+        var near = VasyanGoal.near(new BlockPos(100, 64, 100), 2);
+        var xz = VasyanGoal.xz(11, 10);
+        var composite = VasyanGoal.any(near, xz);
+
+        BlockPos anchor = VasyanGoal.anchor(composite, ORIGIN);
+        assertEquals(new BlockPos(11, 64, 10), anchor,
+            "anchor must choose the closer sub-goal (xz) over the distant near goal");
+    }
+
+    @Test
+    void goalCompositeAnyRejectsEmptyArray() {
+        assertThrows(IllegalArgumentException.class, () -> VasyanGoal.any());
+    }
+
+    @Test
+    void goalCompositeAnyDefensivelyCopiesInputAndAccessor() {
+        var y = VasyanGoal.y(64);
+        VasyanGoal[] goals = {y};
+        var composite = (GoalCompositeAny) VasyanGoal.any(goals);
+
+        goals[0] = VasyanGoal.y(999);
+        assertEquals(64, ((GoalY) composite.goals()[0]).y(),
+            "mutating the input array must not affect the composite");
+
+        VasyanGoal[] exposed = composite.goals();
+        exposed[0] = VasyanGoal.y(1);
+        assertEquals(64, ((GoalY) composite.goals()[0]).y(),
+            "mutating the accessor copy must not affect the composite");
     }
 }

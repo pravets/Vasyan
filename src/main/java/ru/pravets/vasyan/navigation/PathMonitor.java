@@ -473,7 +473,10 @@ public final class PathMonitor {
         int horizontal = Math.max(Math.abs(anchor.getX() - botPos.getX()),
             Math.abs(anchor.getZ() - botPos.getZ()));
         if (dy == 0 || Math.abs(dy) > verticalRecovery.maxDistance()
-                || (dy < 0 && horizontal > verticalRecovery.horizontalRange())) {
+                || (dy < 0 && horizontal > verticalRecovery.horizontalRange())
+                // A distant uphill target is a route-planning problem, not a local
+                // recovery: gating ASCEND by horizontalRange prevents pillar-up loops.
+                || (dy > 0 && horizontal > verticalRecovery.horizontalRange())) {
             return null;
         }
         return dy < 0 ? Decision.DESCEND_STEP : Decision.ASCEND_STEP;

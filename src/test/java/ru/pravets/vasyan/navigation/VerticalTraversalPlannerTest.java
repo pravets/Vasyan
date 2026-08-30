@@ -16,11 +16,13 @@ class VerticalTraversalPlannerTest {
 
     private static VerticalTraversalPlanner.WorldView world(Set<BlockPos> solid,
                                                             Set<BlockPos> breakable,
-                                                            Set<BlockPos> unsafeLiquid) {
+                                                            Set<BlockPos> unsafeLiquid,
+                                                            Set<BlockPos> flowingWater) {
         return new VerticalTraversalPlanner.WorldView() {
             @Override
             public boolean isOpen(BlockPos pos) {
-                return !solid.contains(pos) && !breakable.contains(pos) && !unsafeLiquid.contains(pos);
+                return !solid.contains(pos) && !breakable.contains(pos)
+                    && !unsafeLiquid.contains(pos) && !flowingWater.contains(pos);
             }
 
             @Override
@@ -37,7 +39,18 @@ class VerticalTraversalPlannerTest {
             public boolean isUnsafeLiquid(BlockPos pos) {
                 return unsafeLiquid.contains(pos);
             }
+
+            @Override
+            public boolean isFlowingWater(BlockPos pos) {
+                return flowingWater.contains(pos);
+            }
         };
+    }
+
+    private static VerticalTraversalPlanner.WorldView world(Set<BlockPos> solid,
+                                                            Set<BlockPos> breakable,
+                                                            Set<BlockPos> unsafeLiquid) {
+        return world(solid, breakable, unsafeLiquid, Set.of());
     }
 
     @Test
@@ -133,5 +146,63 @@ class VerticalTraversalPlannerTest {
         assertTrue(step.isPresent());
         assertEquals(VerticalTraversalPlanner.Action.PLACE_SUPPORT, step.get().action());
         assertEquals(sideTarget, step.get().target());
+    }
+
+    @Test
+    void ascendRejectsFlowingWaterAtTarget() {
+        BlockPos flowing = BOT.above();
+        // Block all side escape routes so the only possible step would be into
+        // the flowing-water column; that column must be rejected.
+        var sideWalls = Set.of(
+            new BlockPos(11, 71, 10),
+            new BlockPos(9, 71, 10),
+            new BlockPos(10, 71, 11),
+            new BlockPos(10, 71, 9)
+        );
+        var world = world(sideWalls, Set.of(), Set.of(), Set.of(flowing));
+
+        Optional<VerticalTraversalPlanner.Step> step = VerticalTraversalPlanner.nextStep(
+            BOT, new BlockPos(14, 74, 10), VerticalTraversalPlanner.Mode.ASCEND, world);
+
+        assertTrue(step.isEmpty(), "ascending into flowing water must be rejected");
+    }
+
+    @Test
+    void ascendRejectsFlowingWaterAtHead() {
+        BlockPos flowingHead = BOT.above().above();
+        // Block all side head cells so the only possible head position would be
+        // the one with flowing water; that column must be rejected.
+        var sideHeads = Set.of(
+            new BlockPos(11, 72, 10),
+            new BlockPos(9, 72, 10),
+            new BlockPos(10, 72, 11),
+            new BlockPos(10, 72, 9)
+        );
+        var solidSideSupports = Set.of(
+            new BlockPos(11, 70, 10),
+            new BlockPos(9, 70, 10),
+            new BlockPos(10, 70, 11),
+            new BlockPos(10, 70, 9)
+        );
+        var solidBlocks = new HashSet<BlockPos>();
+        solidBlocks.addAll(solidSideSupports);
+        solidBlocks.addAll(sideHeads);
+        var world = world(solidBlocks, Set.of(), Set.of(), Set.of(flowingHead));
+
+        Optional<VerticalTraversalPlanner.Step> step = VerticalTraversalPlanner.nextStep(
+            BOT, new BlockPos(14, 74, 10), VerticalTraversalPlanner.Mode.ASCEND, world);
+
+        assertTrue(step.isEmpty(), "ascending into a column with flowing water at head must be rejected");
+    }
+
+    @Test
+    void ascendAllowsNonFlowingWaterAtTarget() {
+        // Still water is open and not flowing: the bot may occupy the cell.
+        var world = world(Set.of(), Set.of(), Set.of(), Set.of());
+
+        Optional<VerticalTraversalPlanner.Step> step = VerticalTraversalPlanner.nextStep(
+            BOT, new BlockPos(14, 74, 10), VerticalTraversalPlanner.Mode.ASCEND, world);
+
+        assertTrue(step.isPresent(), "ascending into non-flowing water must still be allowed");
     }
 }

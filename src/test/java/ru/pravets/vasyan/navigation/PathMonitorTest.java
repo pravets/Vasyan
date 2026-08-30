@@ -69,6 +69,7 @@ class PathMonitorTest {
             "navDone outside goal must consume a navDone replan, not be masked by horizontal motion");
     }
 
+    @Test
     void fortyStalledTicksProduceReplanThenAFreshWindow() {
         var m = monitor(40, 3);
 
@@ -210,9 +211,23 @@ class PathMonitorTest {
         var settings = new VerticalRecoverySettings(true, 8, 6);
         var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
 
+        // Horizontal distance (20) exceeds horizontalRange (6), so ASCEND recovery
+        // must be gated: the monitor treats the uphill target as a route problem
+        // and falls through the recovery ladder instead of pillaring in place.
+        assertEquals(PathMonitor.Decision.DIG_THROUGH,
+            m.onTick(BOT, true, false, true, true),
+            "distant uphill targets must not trigger local pillar-up recovery");
+    }
+
+    @Test
+    void localUphillRouteStillUsesAscendRecovery() {
+        var goal = VasyanGoal.near(new BlockPos(4, 70, 0), 1);
+        var settings = new VerticalRecoverySettings(true, 8, 6);
+        var m = new PathMonitor(goal, 1, 0, 0, 1.0, settings);
+
         assertEquals(PathMonitor.Decision.ASCEND_STEP,
             m.onTick(BOT, true, false, true, true),
-            "a bot trapped in a pit must climb locally even when the route target is far away");
+            "local uphill targets within horizontalRange may still climb");
     }
 
     @Test
