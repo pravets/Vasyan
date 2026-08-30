@@ -75,7 +75,7 @@ public class VasyanConfig {
             } catch (Exception quarantineFailure) {
                 // Nothing more we can do safely; let Forge surface the original error.
                 org.slf4j.LoggerFactory.getLogger("VasyanMod").error(
-                    "Failed to quarantine broken vasyan-common.toml ({})", quarantineFailure);
+                    "Failed to quarantine broken vasyan-common.toml", quarantineFailure);
             }
         } catch (java.io.IOException ioFailure) {
             // Read failure (missing dir, permissions...): not a syntax problem.
@@ -283,7 +283,7 @@ public class VasyanConfig {
             .comment("Maximum leaves a tree route may dig through before giving up.",
                 "Mangrove canopies can be more than four blocks deep, so this budget",
                 "is larger than the generic tunnel cap. It applies only to routes",
-                "towards a log target; all other routes keep digThroughMaxBlocks.")
+                "towards a log target; all other routes keep digThroughMaxDepth.")
             .defineInRange("leafDigMaxDepth", 12, 0, 64);
 
         builder.pop();
@@ -330,13 +330,13 @@ public class VasyanConfig {
             .defineInRange("verticalRecoveryMaxScaffoldBlocks", 32, 1, 128);
 
         NAV_DIG_THROUGH_MAX = builder
-            .comment("Maximum blocks a single route may dig through before the recovery",
+            .comment("Maximum tunnel depth in blocks a single route may dig through before the recovery",
                 "ladder stops digging and moves on to scaffold/give-up. Caps horizontal",
                 "tunneling: a thin wall (1-3 blocks) is dug through, a mountain is not.",
-                "Lifetime accounting per route: walking forward after a dig does NOT",
-                "refund the budget. Vertical staircase recovery has its own scaffold",
+                "Each forward step of the tunnel spends one unit of depth; the step breaks",
+                "the foot-and-head corridor. Vertical staircase recovery has its own scaffold",
                 "budget and is unaffected.")
-            .defineInRange("digThroughMaxBlocks", 4, 0, 64);
+            .defineInRange("digThroughMaxDepth", 4, 0, 64);
 
         builder.pop();
 
@@ -379,12 +379,11 @@ public class VasyanConfig {
             .define("sttBaseUrl", "https://routerai.ru/api/v1");
 
         STT_API_KEY = builder
-            .comment("API key for the STT endpoint (stored server-side only)",
-                "Disabled by default: audio leaves the client and reaches the configured STT endpoint - enable explicitly after setting sttApiKey")
+            .comment("API key for the STT endpoint (stored server-side only).")
             .define("sttApiKey", "");
 
         STT_MODEL = builder
-            .comment("Model name of an OpenAI-compatible STT endpoint (stored server-side only)")
+            .comment("Model name for the STT endpoint (stored server-side only).")
             .define("sttModel", "openai/whisper-large-v3-turbo");
 
         STT_LANGUAGE = builder
