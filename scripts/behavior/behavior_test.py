@@ -63,7 +63,7 @@ class RCON:
             r, t, body = pkt
             if t != 0 or body:
                 # Not an empty terminator; put it back and stop draining.
-                self._buf = struct.pack("<i", 10) + struct.pack("<ii", r, t) + body.encode() + b"\x00\x00" + self._buf
+                self._buf = struct.pack("<i", 10 + len(body)) + struct.pack("<ii", r, t) + body.encode() + b"\x00\x00" + self._buf
                 return
             # Otherwise discard empty terminator and continue.
 
@@ -429,16 +429,20 @@ def main():
 
 
 def test_pathfinding_scenarios(workdir, jar_path):
-    """Three scenarios over one server run:
+    """Ten scenarios (A-J) over one server run:
 
     A) River crossing: a water channel is dug across the path; the bot must
        reach the far side WITHOUT any hop-teleport (amphibious nav swims).
-    B) Adjacent stand: the bot must stop beside an obsidian block (XZ
-       manhattan distance == 1, same y) - GoalAdjacent semantics.
+    B) Nearby obsidian: the bot must stop near an obsidian block (Chebyshev
+       distance <= 2, not standing on top) - GoalNear semantics.
     C) Wall dig-through: a dirt wall blocking the straight line must be dug
        through (DIG_THROUGH ladder step) and the bot reaches the target.
     D/E/F) Vertical recovery: descend into a pit, climb back out, and refuse a
        lava-filled descent without teleporting or falling in.
+    G) Hidden coal: a coal ore below the floor must not be x-ray mined.
+    H/I) One-block and two-by-one pit escapes using scaffolding.
+    J) Exposed coal around a corner must be found and mined without digging
+       through a blocking screen.
     """
     log_path = os.path.join(workdir, "behavior_nav.log")
     if os.path.exists(log_path):
@@ -509,7 +513,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             x, y, z = map(float, m.groups())
             return (int(round(x)), int(round(y)), int(round(z)))
 
-        def goto(tx, ty, tz, timeout_s, forbid_teleport=False, forbid_dig=False, y_tolerance=4):
+        def goto(tx, ty, tz, timeout_s, y_tolerance=4):
             offset_before = os.path.getsize(log_path)
             resp = rcon.command(f"vasyan tell Navigator иди к {tx} {ty} {tz}")
             print(f"  tell response: {resp!r}")
@@ -577,19 +581,6 @@ def test_pathfinding_scenarios(workdir, jar_path):
         fill_resp = rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 14} {wall_x} {PLAT_Y + 3} {wz + 14} minecraft:dirt")
         print(f"  wall fill response: {fill_resp!r}")
         time.sleep(1)
-        rcon.command("list")  # cheap RCON resync probe after wall fill
-        # Diagnose the paradox: bot_pos lands INSIDE the wall column without digs.
-        time.sleep(3)
-        pos_before = bot_pos()
-        print(f"  bot pos after wall placed: {pos_before}")
-        for label, (cx, cy, cz) in {
-            "bot cell": (pos_before[0], PLAT_Y + 1, pos_before[2]),
-            "bot head": (pos_before[0], PLAT_Y + 2, pos_before[2]),
-            "east of bot": (pos_before[0] + 1, PLAT_Y + 1, pos_before[2]),
-            "wall cell z0": (wall_x, PLAT_Y + 1, wz),
-        }.items():
-            resp = rcon.command(f"data get block {cx} {cy} {cz}")
-            print(f"  block {label} ({cx},{cy},{cz}): {resp[:120]!r}")
         target_cx = wx + 34
         reached, teleported, dug, pretrigger_fired, _ = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
@@ -640,7 +631,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         if not reached:
             print(f"  [FAIL] vertical descent: bot_pos={bot_pos()}, pretrigger={pretrigger_fired}")
             return 1
-        descended = "DESCEND step to" in descend_segment or "DESCEND placed support" in descend_segment
+        descended = "DESCEND step to" in descend_segment
         if not descended:
             # Vanilla navigation may legally walk off the pit edge and land safely.
             # DESCEND_STEP is required only when vanilla movement stalls.
@@ -658,7 +649,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             exit_x, PLAT_Y + 1, wz, 240, y_tolerance=1)
         if not reached:
             pos_after_ascent = bot_pos()
-            ascended = "ASCEND step to" in ascend_segment or "ASCEND placed support" in ascend_segment
+            ascended = "ASCEND step to" in ascend_segment
             if not teleported and pit_bottom_pos and pos_after_ascent \
                     and pos_after_ascent[1] > pit_bottom_pos[1] and ascended:
                 # Multi-block void-side climbs can legitimately take several recovery cycles on
@@ -675,7 +666,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             print("  [FAIL] vertical ascent used hop-teleport")
             return 1
         else:
-            ascended = "ASCEND step to" in ascend_segment or "ASCEND placed support" in ascend_segment
+            ascended = "ASCEND step to" in ascend_segment
             if not ascended:
                 print("  [FAIL] vertical ascent reached target without ASCEND_STEP evidence")
                 return 1
@@ -711,6 +702,9 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- G) Hidden coal is not x-ray mined ----
         print("Scenario G: hidden coal must stay hidden...")
+        # Scenario D left a coal ore marker in the pit floor; replace it with
+        # stone so it cannot interfere with this scenario's hidden-coal assert.
+        rcon.command(f"setblock {wx + 38} {PLAT_Y - 3} {wz} minecraft:stone")
         rcon.command("vasyan tell Navigator stop")
         hidden_base_x = wx + 21
         tp_resp = rcon.command(f"tp {nav_uuid} {hidden_base_x} {PLAT_Y + 1} {wz}")
@@ -724,7 +718,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         hidden_offset = os.path.getsize(log_path)
         gather_resp = rcon.command("vasyan tell Navigator gather 1 coal")
         print(f"  hidden-coal gather response: {gather_resp!r}")
-        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "hidden coal gather action"):
+        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "hidden coal gather action", offset=hidden_offset):
             return 1
         time.sleep(20)
         rcon.command("vasyan tell Navigator stop")
@@ -732,7 +726,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             f"execute if block {hidden_coal_x} {PLAT_Y - 1} {wz} minecraft:coal_ore")
         inv_resp = rcon.command("vasyan inventory Navigator")
         print(f"  hidden coal check: {block_check!r}; inventory: {inv_resp!r}")
-        if "Test passed" not in block_check and "HIDDEN_COAL_INTACT" not in block_check:
+        if "Test passed" not in block_check:
             print("  [FAIL] hidden coal was broken through the floor")
             return 1
         if "Coal" in inv_resp or "coal_ore" in inv_resp.lower():
@@ -741,21 +735,13 @@ def test_pathfinding_scenarios(workdir, jar_path):
         with open(log_path, "r", errors="replace") as f:
             f.seek(hidden_offset)
             hidden_segment = f.read()
-        if "dug through" in hidden_segment and str(hidden_coal_x) in hidden_segment:
+        if re.search(rf"dug through[^\n]*\(\s*{hidden_coal_x}(?:\.\d+)?\s*,\s*{PLAT_Y - 1}(?:\.\d+)?\s*,\s*{wz}(?:\.\d+)?\s*\)", hidden_segment):
             print("  [FAIL] gather dug toward the hidden coal")
             return 1
         print("  -> hidden coal remained intact and out of inventory")
 
         # ---- H) One-block pit escape ----
         print("Scenario H: climb out of a one-block pit...")
-        pos = bot_pos()
-        if not pos:
-            print("  [FAIL] one-block pit: could not read bot position")
-            return 1
-        rcon.command(
-            f"summon minecraft:item {pos[0]} {pos[1]} {pos[2]} "
-            "{Item:{id:\"minecraft:dirt\",Count:32b}}")
-        time.sleep(4)
         pit1_x = wx + 24
         rcon.command(f"setblock {pit1_x} {PLAT_Y - 1} {wz} minecraft:smooth_stone")
         rcon.command(f"setblock {pit1_x} {PLAT_Y} {wz} minecraft:air")
@@ -782,14 +768,6 @@ def test_pathfinding_scenarios(workdir, jar_path):
 
         # ---- I) Two-by-one pit escape ----
         print("Scenario I: climb out of a two-by-one pit...")
-        pos = bot_pos()
-        if not pos:
-            print("  [FAIL] two-by-one pit: could not read bot position")
-            return 1
-        rcon.command(
-            f"summon minecraft:item {pos[0]} {pos[1]} {pos[2]} "
-            "{Item:{id:\"minecraft:dirt\",Count:32b}}")
-        time.sleep(4)
         pit2_x = wx + 30
         rcon.command(f"fill {pit2_x} {PLAT_Y - 1} {wz} {pit2_x + 1} {PLAT_Y - 1} {wz} minecraft:smooth_stone")
         rcon.command(f"fill {pit2_x} {PLAT_Y} {wz} {pit2_x + 1} {PLAT_Y} {wz} minecraft:air")
@@ -833,7 +811,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         corner_offset = os.path.getsize(log_path)
         gather_resp = rcon.command("vasyan tell Navigator gather 1 coal")
         print(f"  corner-coal gather response: {gather_resp!r}")
-        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "corner coal gather action"):
+        if not wait_for(log_path, r"Ticking action: Gather 1 Coal", 45, "corner coal gather action", offset=corner_offset):
             return 1
         corner_deadline = time.time() + 240
         corner_mined = False

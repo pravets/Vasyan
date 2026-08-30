@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [master, main, pr-39]
+    branches: [master, main]
   pull_request:
   workflow_dispatch:
 
