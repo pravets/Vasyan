@@ -1,6 +1,7 @@
 package ru.pravets.vasyan.navigation;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Vec3i;
 import net.minecraft.world.level.pathfinder.Node;
 import org.junit.jupiter.api.Test;
 
@@ -9,6 +10,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class VasyanEdgePathTest {
 
@@ -58,6 +60,21 @@ class VasyanEdgePathTest {
     }
 
     @Test
+    void duplicateCoordinateEntriesKeepDistinctTransitionsByPathIndex() {
+        Node first = node(0, 64, 0);
+        Node walkDestination = node(1, 64, 0);
+        Node digDestination = node(1, 64, 0);
+        VasyanPath path = new VasyanPath(List.of(first, walkDestination, digDestination),
+            List.of(edge(first, walkDestination, MoveType.WALK, 1, null, null, null),
+                edge(walkDestination, digDestination, MoveType.DIG, 5, new BlockPos(1, 64, 0),
+                    new BlockPos(1, 65, 0), null)), digDestination.asBlockPos(), true);
+
+        assertEquals(MoveType.WALK, path.getNextTransition().moveType());
+        path.advance();
+        assertEquals(MoveType.DIG, path.getNextTransition().moveType());
+    }
+
+    @Test
     void nextTransitionFollowsPathIndexAndEndsAfterLastStep() {
         Node first = node(0, 64, 0);
         Node second = node(1, 64, 0);
@@ -85,6 +102,43 @@ class VasyanEdgePathTest {
         assertNotSame(firstPath.getNextTransition(), secondPath.getNextTransition());
         assertEquals(MoveType.DIG, firstPath.getNextTransition().moveType());
         assertEquals(MoveType.PLACE, secondPath.getNextTransition().moveType());
+    }
+
+    @Test
+    void inheritedPathOperationsCanMutateItsDefensiveNodeCopy() {
+        Node first = node(0, 64, 0);
+        Node second = node(1, 64, 0);
+        VasyanPath path = new VasyanPath(List.of(first, second),
+            List.of(edge(first, second, MoveType.WALK, 1, null, null, null)), second.asBlockPos(), true);
+
+        path.replaceNode(0, node(5, 64, 0));
+        path.truncateNodes(1);
+
+        assertEquals(1, path.getNodeCount());
+        assertEquals(new BlockPos(5, 64, 0), path.getNodePos(0));
+    }
+
+    @Test
+    void pathRequiresOneTransitionForEveryNodeStep() {
+        Node first = node(0, 64, 0);
+        Node second = node(1, 64, 0);
+
+        assertThrows(IllegalArgumentException.class,
+            () -> new VasyanPath(List.of(first, second), List.of(), second.asBlockPos(), true));
+        assertThrows(IllegalArgumentException.class,
+            () -> new VasyanPath(List.of(first), List.of(edge(first, first, MoveType.WALK, 1, null, null, null)),
+                first.asBlockPos(), true));
+    }
+
+    @Test
+    void mutationPositionsAreSnapshotAtEdgeConstruction() {
+        BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos(1, 64, 0);
+        VasyanEdge edge = new VasyanEdge(node(0, 64, 0), node(1, 64, 0), MoveType.DIG, 1,
+            mutable, null, null);
+
+        mutable.set(new Vec3i(9, 9, 9));
+
+        assertEquals(new BlockPos(1, 64, 0), edge.digFoot());
     }
 
     private static Node node(int x, int y, int z) {

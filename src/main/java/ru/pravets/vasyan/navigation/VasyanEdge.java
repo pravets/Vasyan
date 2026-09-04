@@ -23,9 +23,9 @@ public final class VasyanEdge {
         this.to = to;
         this.moveType = moveType;
         this.cost = cost;
-        this.digFoot = digFoot;
-        this.digHead = digHead;
-        this.placePosition = placePosition;
+        this.digFoot = immutable(digFoot);
+        this.digHead = immutable(digHead);
+        this.placePosition = immutable(placePosition);
     }
 
     public Node from() { return from; }
@@ -44,4 +44,9 @@ public final class VasyanEdge {
 
     @Nullable
     public BlockPos placePosition() { return placePosition; }
+
+    @Nullable
+    private static BlockPos immutable(@Nullable BlockPos position) {
+        return position == null ? null : position.immutable();
+    }
 }

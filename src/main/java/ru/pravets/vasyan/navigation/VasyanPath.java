@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.pathfinder.Node;
 import net.minecraft.world.level.pathfinder.Path;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /** A vanilla-compatible path with transition metadata for each movement step. */
@@ -12,9 +13,10 @@ public final class VasyanPath extends Path {
     private final List<VasyanEdge> transitions;
 
     public VasyanPath(List<Node> nodes, List<VasyanEdge> transitions, BlockPos target, boolean reachesTarget) {
-        super(List.copyOf(nodes), target, reachesTarget);
-        if (transitions.size() > nodes.size()) {
-            throw new IllegalArgumentException("A path cannot have more transitions than nodes");
+        super(new ArrayList<>(nodes), target, reachesTarget);
+        int expectedTransitions = Math.max(0, nodes.size() - 1);
+        if (transitions.size() != expectedTransitions) {
+            throw new IllegalArgumentException("A path must have one transition per node step");
         }
         this.transitions = List.copyOf(transitions);
     }
