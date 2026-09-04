@@ -16,6 +16,7 @@ import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.testutil.AbstractMinecraftTest;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -32,7 +33,7 @@ import static org.mockito.Mockito.when;
  * stubbed {@link Level}: a {@link BlockPos}-keyed map of real block states,
  * everything unlisted reads as air. The evaluator's vanilla half is exercised
  * by {@code WalkNodeEvaluator} itself; these tests drive the package-visible
- * {@code addSpecialEdges} hook the same way {@code getNeighbors} does, without
+ * {@code getEdges} hook the same way {@code getNeighbors} does, without
  * standing up a {@link net.minecraft.world.level.PathNavigationRegion}.
  *
  * <p>Shared-mock note (same as {@code DigRulesTest}): mocking {@link Level}
@@ -95,10 +96,10 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         when(mob.getInventory()).thenReturn(inventory);
     }
 
-    private static Node find(Node[] nodes, int count, BlockPos pos) {
-        for (int i = 0; i < count; i++) {
-            if (nodes[i].x == pos.getX() && nodes[i].y == pos.getY() && nodes[i].z == pos.getZ()) {
-                return nodes[i];
+    private static VasyanEdge find(List<VasyanEdge> edges, BlockPos pos, MoveType type) {
+        for (VasyanEdge edge : edges) {
+            if (edge.to().asBlockPos().equals(pos) && edge.moveType() == type) {
+                return edge;
             }
         }
         return null;
@@ -117,13 +118,13 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        Node dig = find(neighbors, count, BOT.east(2));
+        VasyanEdge dig = find(edges, BOT.east(2), MoveType.DIG);
         assertNotNull(dig, "evaluator must offer a DIG edge landing beyond the wall");
-        assertEquals(MoveType.DIG, evaluator.getMoveType(dig));
-        assertTrue(dig.costMalus >= VasyanConfig.NAV_DIG_COST.get(),
+        assertEquals(BOT.east(), dig.digFoot());
+        assertEquals(BOT.east().above(), dig.digHead());
+        assertTrue(dig.cost() >= VasyanConfig.NAV_DIG_COST.get(),
             "DIG edge must carry at least the configured base dig cost");
     }
 
@@ -138,13 +139,12 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        Node place = find(neighbors, count, BOT.east());
+        VasyanEdge place = find(edges, BOT.east(), MoveType.PLACE);
         assertNotNull(place, "evaluator must offer a PLACE edge at the near side of a too-deep gap");
-        assertEquals(MoveType.PLACE, evaluator.getMoveType(place));
-        assertEquals(VasyanConfig.NAV_PLACE_COST.get(), place.costMalus, 0.001f);
+        assertEquals(BOT.east().below(), place.placePosition());
+        assertEquals(VasyanConfig.NAV_PLACE_COST.get(), place.cost(), 0.001f);
     }
 
     @Test
@@ -156,10 +156,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.east()),
+        assertNull(find(edges, BOT.east(), MoveType.PLACE),
             "a gap within maxDropDown must stay a plain walk-down edge, not a PLACE edge");
     }
 
@@ -174,13 +173,12 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        Node pillar = find(neighbors, count, BOT.above());
+        VasyanEdge pillar = find(edges, BOT.above(), MoveType.PILLAR_UP);
         assertNotNull(pillar, "evaluator must offer a PILLAR_UP edge one block up");
-        assertEquals(MoveType.PILLAR_UP, evaluator.getMoveType(pillar));
-        assertEquals(VasyanConfig.NAV_PLACE_COST.get() + DigPlaceCosts.walkCost(), pillar.costMalus, 0.001f);
+        assertEquals(BOT, pillar.placePosition());
+        assertEquals(VasyanConfig.NAV_PLACE_COST.get() + DigPlaceCosts.walkCost(), pillar.cost(), 0.001f);
     }
 
     @Test
@@ -193,10 +191,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.east(2)),
+        assertNull(find(edges, BOT.east(2), MoveType.DIG),
             "a foot-level unbreakable obstacle must not produce a DIG edge");
     }
 
@@ -210,10 +207,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.east(2)),
+        assertNull(find(edges, BOT.east(2), MoveType.DIG),
             "a head-level unbreakable obstacle must not produce a DIG edge");
     }
 
@@ -228,10 +224,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.east(2)),
+        assertNull(find(edges, BOT.east(2), MoveType.DIG),
             "an unbreakable destination must not be force-marked walkable");
     }
 
@@ -245,10 +240,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.east(2)),
+        assertNull(find(edges, BOT.east(2), MoveType.DIG),
             "a lava destination is not a passable DIG target");
     }
 
@@ -262,19 +256,11 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
         Node current = new Node(BOT.getX(), BOT.getY(), BOT.getZ());
-        Node[] first = new Node[32];
-        int firstCount = evaluator.addSpecialEdges(first, 0, current);
-        Node dig = find(first, firstCount, BOT.east(2));
+        List<VasyanEdge> first = evaluator.getEdges(current);
+        VasyanEdge dig = find(first, BOT.east(2), MoveType.DIG);
         assertNotNull(dig);
-        float chargedOnce = dig.costMalus;
-
-        // Second pass with the first pass pre-seeded, as repeated A* expansion would do.
-        Node[] second = new Node[32];
-        System.arraycopy(first, 0, second, 0, firstCount);
-        int secondCount = evaluator.addSpecialEdges(second, firstCount, current);
-
-        assertEquals(firstCount, secondCount, "already-present neighbors must not be re-added");
-        assertEquals(chargedOnce, dig.costMalus, 0.001f, "edge cost must not be charged twice");
+        assertEquals(0, dig.to().costMalus, 0.001f, "edge cost must not mutate shared node malus");
+        assertEquals(dig.cost(), find(evaluator.getEdges(current), BOT.east(2), MoveType.DIG).cost(), 0.001f);
     }
 
     @Test
@@ -286,15 +272,7 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        for (int i = 0; i < neighbors.length; i++) {
-            neighbors[i] = new Node(100 + i, 70, 10);
-        }
-
-        int count = evaluator.addSpecialEdges(
-            neighbors, neighbors.length, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
-
-        assertEquals(neighbors.length, count, "a full neighbors array must not overflow");
+        assertTrue(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())).size() <= 9);
     }
 
     @Test
@@ -305,10 +283,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying();
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.east()),
+        assertNull(find(edges, BOT.east(), MoveType.PLACE),
             "no scaffold block in the inventory means no PLACE edge across a deep gap");
     }
 
@@ -319,18 +296,47 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         mobCarrying();
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        Node[] neighbors = new Node[32];
-        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(neighbors, count, BOT.above()),
+        assertNull(find(edges, BOT.above(), MoveType.PILLAR_UP),
             "no scaffold block in the inventory means no PILLAR_UP edge");
     }
 
     @Test
-    void unknownNodeDefaultsToWalkMoveType() {
+    void freshComputationsDoNotRetainSpecialMetadata() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
         mobCarrying(Blocks.DIRT);
-        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(Map.of()));
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        assertNotNull(find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.east(2), MoveType.DIG));
 
-        assertEquals(MoveType.WALK, evaluator.getMoveType(new Node(123, 45, 678)));
+        world.clear();
+        mobCarrying();
+        assertTrue(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())).stream()
+            .noneMatch(edge -> edge.moveType() != MoveType.WALK));
+    }
+
+    @Test
+    void specialEdgesFromDifferentParentsKeepIndependentCosts() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.west(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.west().above(), Blocks.DIRT.defaultBlockState());
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+
+        VasyanEdge east = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.east(2), MoveType.DIG);
+        VasyanEdge west = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.west(2), MoveType.DIG);
+
+        assertEquals(east.cost(), west.cost(), 0.001f);
+        assertEquals(0, east.to().costMalus, 0.001f);
+        assertEquals(0, west.to().costMalus, 0.001f);
     }
 }

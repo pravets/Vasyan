@@ -4,9 +4,9 @@ import net.minecraft.world.level.pathfinder.PathFinder;
 
 /**
  * Thin {@link PathFinder} subtype that keeps the {@link VasyanNodeEvaluator}
- * reachable so the navigation layer can read per-edge {@link MoveType}s back
- * after a path is computed. Vanilla {@link PathFinder} stores the evaluator
- * in a private field, hence the separate reference here.
+ * reachable so the edge-aware navigation layer can query its transition
+ * candidates. Vanilla {@link PathFinder} stores the evaluator in a private
+ * field, hence the separate reference here.
  *
  * @author Iosif Pravets &lt;i@pravets.ru&gt;
  */
@@ -19,7 +19,7 @@ public class VasyanPathFinder extends PathFinder {
         this.vasyanEvaluator = evaluator;
     }
 
-    /** The evaluator this finder plans with; also usable for {@code getMoveType} lookups. */
+    /** The evaluator this finder plans with. */
     public VasyanNodeEvaluator vasyanEvaluator() {
         return this.vasyanEvaluator;
     }
