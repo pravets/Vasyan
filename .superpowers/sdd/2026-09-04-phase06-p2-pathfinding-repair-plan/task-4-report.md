@@ -32,6 +32,14 @@ Implemented `VasyanPathNavigation` without wiring it into `VasyanEntity`.
 
 The test seam uses the real edge-dispatch executor and covers walk delegation and exhausted-path idempotence. Full server-world mutation coverage remains a concern for a follow-up because the requested no-entity-wiring scope leaves no concrete production construction path for a world-backed `VasyanEntity` in this test fixture.
 
+## Review Repair
+
+- DIG now tracks the active edge and processes only one of its foot/head cells per invocation; navigation does not delegate movement until both cells are passable.
+- The mutation boundary rejects client-side execution.
+- DIG revalidates `DigRules.isBreakable(level, pos, false)`, flow safety, and falling-block safety immediately before `destroyBlock`.
+- Lookahead DIG invalidation now triggers when a required corridor cell remains blocked, rather than when it is already open.
+- The available test fixture was rechecked. `McTestBootstrap` only initializes registries; the repository has no concrete lightweight `Level` implementation. `VasyanEntity` construction requires a registered entity type and a real/controlled level, while Mockito `Level` cannot provide stateful block mutation without effectively recreating a level. Therefore concrete DIG/PLACE/PILLAR world/inventory tests remain an explicit limitation, not represented by null-bot assertions.
+
 ## Commit
 
 Commit: `feat(navigation): add edge-aware path executor`

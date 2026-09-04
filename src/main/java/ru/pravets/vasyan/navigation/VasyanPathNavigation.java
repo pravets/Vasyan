@@ -18,6 +18,9 @@ import ru.pravets.vasyan.entity.VasyanEntity;
 public class VasyanPathNavigation extends AmphibiousPathNavigation {
     private static final int LOOKAHEAD_TRANSITIONS = 5;
     private long lastReplanCheck = Long.MIN_VALUE;
+    private VasyanEdge pendingDig;
+    private boolean dugFoot;
+    private boolean dugHead;
 
     public VasyanPathNavigation(Mob mob, Level level) {
         super(mob, level);
@@ -32,32 +35,66 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
     @Override
     protected void followThePath() {
         if (!level.isClientSide && mob instanceof VasyanEntity vasyan) {
-            executeNextEdge(vasyan, path);
+            executeNextEdge(vasyan, path, this);
             maybeReplan(vasyan, path);
+            if (pendingDig != null && !digComplete(pendingDig)) return;
         }
         super.followThePath();
     }
 
     static boolean executeNextEdge(VasyanEntity bot, Path currentPath) {
-        if (bot == null || !(currentPath instanceof VasyanPath vasyanPath)) return false;
+        return executeNextEdge(bot, currentPath, null);
+    }
+
+    private static boolean executeNextEdge(VasyanEntity bot, Path currentPath, VasyanPathNavigation navigation) {
+        if (bot == null || bot.level().isClientSide || !(currentPath instanceof VasyanPath vasyanPath)) return false;
         VasyanEdge edge = vasyanPath.getNextTransition();
         if (edge == null) return false;
         return switch (edge.moveType()) {
             case WALK -> false;
-            case DIG -> dig(bot.level(), edge);
+            case DIG -> navigation == null ? digFirst(bot.level(), edge) : navigation.dig(bot.level(), edge);
             case PLACE -> place(bot, edge.placePosition());
             case PILLAR_UP -> place(bot, edge.placePosition()) && jump(bot);
         };
     }
 
-    private static boolean dig(Level world, VasyanEdge edge) {
-        boolean changed = false;
-        for (BlockPos pos : new BlockPos[] {edge.digFoot(), edge.digHead()}) {
-            if (pos != null && !world.getBlockState(pos).isAir()) {
-                changed |= world.destroyBlock(pos, true);
-            }
+    private boolean dig(Level world, VasyanEdge edge) {
+        if (pendingDig != edge) {
+            pendingDig = edge;
+            dugFoot = false;
+            dugHead = false;
         }
-        return changed;
+        if (!dugFoot && edge.digFoot() != null && canDig(world, edge.digFoot())) {
+            dugFoot = destroy(world, edge.digFoot());
+            return dugFoot;
+        }
+        if (!dugHead && edge.digHead() != null && canDig(world, edge.digHead())) {
+            dugHead = destroy(world, edge.digHead());
+            return dugHead;
+        }
+        dugFoot = edge.digFoot() == null || world.getBlockState(edge.digFoot()).isAir();
+        dugHead = edge.digHead() == null || world.getBlockState(edge.digHead()).isAir();
+        return false;
+    }
+
+    private static boolean digFirst(Level world, VasyanEdge edge) {
+        BlockPos pos = edge.digFoot() != null ? edge.digFoot() : edge.digHead();
+        return pos != null && canDig(world, pos) && destroy(world, pos);
+    }
+
+    private static boolean canDig(Level world, BlockPos pos) {
+        return DigRules.isBreakable(world, pos, false)
+            && !DigRules.wouldCreateFlow(world, pos)
+            && !DigRules.isFallingBlock(world, pos);
+    }
+
+    private static boolean destroy(Level world, BlockPos pos) {
+        return world.destroyBlock(pos, true);
+    }
+
+    private boolean digComplete(VasyanEdge edge) {
+        return (edge.digFoot() == null || level.getBlockState(edge.digFoot()).isAir())
+            && (edge.digHead() == null || level.getBlockState(edge.digHead()).isAir());
     }
 
     private static boolean place(VasyanEntity bot, BlockPos pos) {
@@ -115,8 +152,8 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         int end = Math.min(vasyanPath.transitions().size(), start + LOOKAHEAD_TRANSITIONS);
         for (int i = start; i < end; i++) {
             VasyanEdge edge = vasyanPath.transitions().get(i);
-            if (edge.moveType() == MoveType.DIG && edge.digFoot() != null && level.getBlockState(edge.digFoot()).isAir()
-                    && (edge.digHead() == null || level.getBlockState(edge.digHead()).isAir())) {
+            if (edge.moveType() == MoveType.DIG && ((edge.digFoot() != null && !level.getBlockState(edge.digFoot()).isAir())
+                    || (edge.digHead() != null && !level.getBlockState(edge.digHead()).isAir()))) {
                 recomputePath();
                 return;
             }

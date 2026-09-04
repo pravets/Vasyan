@@ -11,16 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VasyanPathNavigationTest {
     @Test
-    void walkEdgesAreDelegatedWithoutMutation() {
-        McTestBootstrap.bootstrap();
-        Node from = new Node(0, 64, 0);
-        Node to = new Node(1, 64, 0);
-        VasyanPath path = new VasyanPath(List.of(from, to),
-            List.of(new VasyanEdge(from, to, MoveType.WALK, 1, null, null, null)), to.asBlockPos(), true);
-        assertFalse(VasyanPathNavigation.executeNextEdge(null, path));
-    }
-
-    @Test
     void exhaustedPathDoesNotExecuteAnEdge() {
         McTestBootstrap.bootstrap();
         Node node = new Node(0, 64, 0);
