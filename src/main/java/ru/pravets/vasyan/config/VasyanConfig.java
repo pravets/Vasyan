@@ -133,6 +133,14 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE;
     public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS;
     public static final ForgeConfigSpec.IntValue NAV_DIG_THROUGH_MAX;
+    public static final ForgeConfigSpec.IntValue NAV_DIG_COST;
+    public static final ForgeConfigSpec.IntValue NAV_PLACE_COST;
+    public static final ForgeConfigSpec.IntValue NAV_LIQUID_COST;
+    public static final ForgeConfigSpec.IntValue NAV_ENTITY_COST;
+    public static final ForgeConfigSpec.IntValue NAV_MAX_DROP_DOWN;
+    public static final ForgeConfigSpec.DoubleValue NAV_DIG_HARDNESS_FACTOR;
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> NAV_SCAFFOLD_WHITELIST;
+    public static final ForgeConfigSpec.IntValue NAV_REPLAN_CHECK_INTERVAL_TICKS;
     public static final ForgeConfigSpec.IntValue ACTION_TICK_DELAY;
     public static final ForgeConfigSpec.BooleanValue ENABLE_CHAT_RESPONSES;
     public static final ForgeConfigSpec.IntValue MAX_ACTIVE_VASYANS;
@@ -346,6 +354,40 @@ public class VasyanConfig {
                 "the foot-and-head corridor. Vertical staircase recovery has its own scaffold",
                 "budget and is unaffected.")
             .defineInRange("digThroughMaxDepth", 4, 0, 64);
+
+        NAV_DIG_COST = builder
+            .comment("Base A* cost added by a DIG edge.")
+            .defineInRange("digCost", 4, 0, 1000);
+
+        NAV_PLACE_COST = builder
+            .comment("Base A* cost added by a PLACE edge (one scaffold block consumed).")
+            .defineInRange("placeCost", 2, 0, 1000);
+
+        NAV_LIQUID_COST = builder
+            .comment("Extra A* cost added to a WALK edge that wades through a liquid cell.")
+            .defineInRange("liquidCost", 8, 0, 1000);
+
+        NAV_ENTITY_COST = builder
+            .comment("Extra A* cost added to an edge landing in a cell occupied by another entity.")
+            .defineInRange("entityCost", 20, 0, 1000);
+
+        NAV_MAX_DROP_DOWN = builder
+            .comment("Maximum drop height in blocks a route may fall in one WALK edge.")
+            .defineInRange("maxDropDown", 4, 0, 32);
+
+        NAV_DIG_HARDNESS_FACTOR = builder
+            .comment("Multiplier applied to block destroy speed when pricing a DIG edge:",
+                "digCost = digCost + round(destroySpeed * digHardnessFactor).")
+            .defineInRange("digHardnessFactor", 1.0, 0.0, 100.0);
+
+        NAV_SCAFFOLD_WHITELIST = builder
+            .comment("Block ids (\"minecraft:...\") the bot may use as scaffold/place material.")
+            .defineList("scaffoldWhitelist", List.of("minecraft:dirt", "minecraft:cobblestone"),
+                o -> o instanceof String s && !s.isBlank());
+
+        NAV_REPLAN_CHECK_INTERVAL_TICKS = builder
+            .comment("Ticks between path-liveness checks that may trigger a replan (20 ticks = 1 second).")
+            .defineInRange("replanCheckIntervalTicks", 20, 1, 200);
 
         builder.pop();
 
