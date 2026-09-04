@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.IdentityHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -45,6 +46,46 @@ class VasyanPathFinderTest {
             .findPath(null, null, Set.of(walkNode.asBlockPos()), 32, 0, 1.0F);
 
         assertEquals(MoveType.WALK, path.transitions().get(0).moveType());
+    }
+
+    @Test
+    void cheaperLongerWalkRouteBeatsShortExpensiveDigRoute() {
+        Node start = node(0, 64, 0), shortGoal = node(2, 64, 0), step = node(1, 64, 0);
+        Node longGoal = node(2, 64, 0);
+        VasyanEdge dig = edge(start, shortGoal, MoveType.DIG, 10, new BlockPos(1, 64, 0),
+            new BlockPos(1, 65, 0), null);
+        VasyanEdge firstWalk = edge(start, step, MoveType.WALK, 1, null, null, null);
+        VasyanEdge secondWalk = edge(step, longGoal, MoveType.WALK, 1, null, null, null);
+        VasyanNodeEvaluator evaluator = new FixtureEvaluator(start, Map.of(start, List.of(dig, firstWalk),
+            step, List.of(secondWalk)));
+
+        VasyanPath path = (VasyanPath) new VasyanPathFinder(evaluator, 100)
+            .findPath(null, null, Set.of(shortGoal.asBlockPos()), 32, 0, 1.0F);
+
+        assertEquals(List.of(MoveType.WALK, MoveType.WALK),
+            path.transitions().stream().map(VasyanEdge::moveType).toList());
+    }
+
+    @Test
+    void coordinateEqualStatesWithDifferentMetadataRemainSearchable() {
+        Node start = node(0, 64, 0), sharedWalk = node(1, 64, 0), sharedDig = node(1, 64, 0);
+        Node goal = node(2, 64, 0);
+        VasyanEdge walk = edge(start, sharedWalk, MoveType.WALK, 1, null, null, null);
+        VasyanEdge dig = edge(start, sharedDig, MoveType.DIG, 2, new BlockPos(1, 64, 0),
+            new BlockPos(1, 65, 0), null);
+        VasyanEdge fromWalk = edge(sharedWalk, goal, MoveType.PLACE, 1, null, null, new BlockPos(2, 63, 0));
+        VasyanEdge fromDig = edge(sharedDig, goal, MoveType.PILLAR_UP, 1, null, null, new BlockPos(1, 64, 0));
+        Map<Node, List<VasyanEdge>> edges = new IdentityHashMap<>();
+        edges.put(start, List.of(walk, dig));
+        edges.put(sharedWalk, List.of(fromWalk));
+        edges.put(sharedDig, List.of(fromDig));
+        VasyanNodeEvaluator evaluator = new FixtureEvaluator(start, edges);
+
+        VasyanPath path = (VasyanPath) new VasyanPathFinder(evaluator, 100)
+            .findPath(null, null, Set.of(goal.asBlockPos()), 32, 0, 1.0F);
+
+        assertEquals(List.of(MoveType.WALK, MoveType.PLACE),
+            path.transitions().stream().map(VasyanEdge::moveType).toList());
     }
 
     private static Node node(int x, int y, int z) { return new Node(x, y, z); }

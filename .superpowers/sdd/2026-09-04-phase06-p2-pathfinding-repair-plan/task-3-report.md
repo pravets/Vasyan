@@ -32,3 +32,9 @@ Author: `Iosif Pravets <i@pravets.ru>`
 
 - The implementation intentionally keeps the existing vanilla method signature and returns `null` when no route is found or the budget is exhausted.
 - The pathfinder is not wired to `VasyanEntity` and does not execute transitions, as required by Task 3.
+
+## Review Fixes
+
+- Removed the inadmissible `1.5` heuristic multiplier; the current heuristic is zero, so nonnegative edge costs preserve cost-optimal first-goal behavior.
+- Search-state keys now include destination coordinates and incoming edge signature: move type plus DIG/PLACE mutation positions. This prevents coordinate-only deduplication from discarding distinct transition metadata.
+- Added regressions for cheaper longer WALK routes, coordinate-equal metadata alternatives, and continued cheaper WALK selection.

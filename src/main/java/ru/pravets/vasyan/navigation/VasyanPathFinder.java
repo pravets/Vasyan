@@ -41,15 +41,15 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
             SearchState initial = new SearchState(start, null, null, 0,
                 heuristic(start, targetList));
             PriorityQueue<SearchState> open = new PriorityQueue<>(Comparator.comparingDouble(s -> s.f));
-            Map<Node, SearchState> best = new HashMap<>();
-            Set<Node> closed = new HashSet<>();
+            Map<SearchKey, SearchState> best = new HashMap<>();
+            Set<SearchKey> closed = new HashSet<>();
             open.add(initial);
-            best.put(start, initial);
+            best.put(initial.key, initial);
             SearchState reached = null;
             int visited = 0;
             while (!open.isEmpty() && visited++ < limit) {
                 SearchState state = open.poll();
-                if (best.get(state.node) != state || !closed.add(state.node)) continue;
+                if (best.get(state.key) != state || !closed.add(state.key)) continue;
                 if (targetList.stream().anyMatch(target -> state.node.distanceManhattan(target) <= reachRange)) {
                     reached = state;
                     break;
@@ -58,11 +58,12 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
                 for (VasyanEdge edge : vasyanEvaluator.getEdges(region, state.node)) {
                     Node next = edge.to();
                     float cost = state.g + edge.cost();
-                    SearchState old = best.get(next);
-                    if (closed.contains(next) || (old != null && cost >= old.g)) continue;
+                    SearchKey key = SearchKey.of(next, edge);
+                    SearchState old = best.get(key);
+                    if (closed.contains(key) || (old != null && cost >= old.g)) continue;
                     SearchState candidate = new SearchState(next, state, edge, cost,
                         cost + heuristic(next, targetList));
-                    best.put(next, candidate);
+                    best.put(key, candidate);
                     open.add(candidate);
                 }
             }
@@ -73,8 +74,7 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
     }
 
     private static float heuristic(Node node, List<BlockPos> targets) {
-        return targets.stream().mapToDouble(node::distanceTo).min().orElse(0) > 0
-            ? (float) (targets.stream().mapToDouble(node::distanceTo).min().orElse(0) * 1.5) : 0;
+        return 0;
     }
 
     private static VasyanPath reconstruct(SearchState end, List<BlockPos> targets) {
@@ -88,5 +88,17 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
         return new VasyanPath(nodes, edges, target, true);
     }
 
-    private record SearchState(Node node, SearchState parent, VasyanEdge incoming, float g, float f) { }
+    private record SearchState(Node node, SearchState parent, VasyanEdge incoming, float g, float f, SearchKey key) {
+        SearchState(Node node, SearchState parent, VasyanEdge incoming, float g, float f) {
+            this(node, parent, incoming, g, f, SearchKey.of(node, incoming));
+        }
+    }
+
+    private record SearchKey(int x, int y, int z, MoveType moveType, BlockPos digFoot,
+                             BlockPos digHead, BlockPos placePosition) {
+        static SearchKey of(Node node, VasyanEdge edge) {
+            return edge == null ? new SearchKey(node.x, node.y, node.z, null, null, null, null)
+                : new SearchKey(node.x, node.y, node.z, edge.moveType(), edge.digFoot(), edge.digHead(), edge.placePosition());
+        }
+    }
 }
