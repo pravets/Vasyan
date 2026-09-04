@@ -310,13 +310,22 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        assertNotNull(find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
-            BOT.east(2), MoveType.DIG));
+        VasyanEdge first = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.east(2), MoveType.DIG);
+        assertNotNull(first);
+        MoveType firstType = first.moveType();
+        BlockPos firstFoot = first.digFoot();
+        BlockPos firstHead = first.digHead();
+        float firstCost = first.cost();
 
         world.clear();
         mobCarrying();
         assertTrue(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())).stream()
             .noneMatch(edge -> edge.moveType() != MoveType.WALK));
+        assertEquals(firstType, first.moveType());
+        assertEquals(firstFoot, first.digFoot());
+        assertEquals(firstHead, first.digHead());
+        assertEquals(firstCost, first.cost());
     }
 
     @Test
@@ -325,18 +334,43 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
-        states.put(BOT.west(), Blocks.DIRT.defaultBlockState());
-        states.put(BOT.west().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(3), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(3).above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2).below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(3).below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2).below(), Blocks.DIRT.defaultBlockState());
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
 
         VasyanEdge east = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
             BOT.east(2), MoveType.DIG);
-        VasyanEdge west = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
-            BOT.west(2), MoveType.DIG);
+        VasyanEdge west = find(evaluator.getEdges(new Node(BOT.getX() + 4, BOT.getY(), BOT.getZ())),
+            BOT.east(2), MoveType.DIG);
 
         assertEquals(east.cost(), west.cost(), 0.001f);
         assertEquals(0, east.to().costMalus, 0.001f);
         assertEquals(0, west.to().costMalus, 0.001f);
+    }
+
+    @Test
+    void edgeApiKeepsWalkAndSpecialCandidatesAtTheSameCoordinateDistinct() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node current = new Node(BOT.getX(), BOT.getY(), BOT.getZ());
+        Node duplicateDestination = new Node(BOT.getX() + 2, BOT.getY(), BOT.getZ());
+
+        List<VasyanEdge> edges = evaluator.getEdges(current, new Node[] { duplicateDestination }, 1);
+
+        assertTrue(edges.stream().anyMatch(edge -> edge.moveType() == MoveType.DIG
+            && edge.to().asBlockPos().equals(BOT.east(2))));
+        assertTrue(edges.stream().anyMatch(edge -> edge.moveType() == MoveType.WALK
+            && edge.to().asBlockPos().equals(BOT.east(2))));
+        assertTrue(edges.stream().allMatch(edge -> edge.moveType() == MoveType.WALK
+            || edge.moveType() == MoveType.DIG || edge.moveType() == MoveType.PLACE
+            || edge.moveType() == MoveType.PILLAR_UP));
     }
 }

@@ -61,9 +61,13 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     public List<VasyanEdge> getEdges(PathNavigationRegion region, Node current) {
         Node[] neighbors = new Node[32];
         int count = super.getNeighbors(neighbors, current);
-        List<VasyanEdge> edges = new ArrayList<>(count + 9);
-        for (int i = 0; i < count; i++) {
-            edges.add(new VasyanEdge(current, neighbors[i], MoveType.WALK, DigPlaceCosts.walkCost(),
+        return getEdges(current, neighbors, count);
+    }
+
+    List<VasyanEdge> getEdges(Node current, Node[] vanillaNeighbors, int vanillaCount) {
+        List<VasyanEdge> edges = new ArrayList<>(vanillaCount + 9);
+        for (int i = 0; i < vanillaCount; i++) {
+            edges.add(new VasyanEdge(current, vanillaNeighbors[i], MoveType.WALK, DigPlaceCosts.walkCost(),
                 null, null, null));
         }
         edges.addAll(getSpecialEdges(current));
