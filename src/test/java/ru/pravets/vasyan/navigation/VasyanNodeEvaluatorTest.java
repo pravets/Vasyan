@@ -184,6 +184,135 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void generatesNoDigNeighborWhenFootObstacleIsUnbreakable() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        // Bedrock at foot, dirt at head: clearing the head still leaves a solid foot cell.
+        states.put(BOT.east(), Blocks.BEDROCK.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node[] neighbors = new Node[32];
+        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(neighbors, count, BOT.east(2)),
+            "a foot-level unbreakable obstacle must not produce a DIG edge");
+    }
+
+    @Test
+    void generatesNoDigNeighborWhenHeadObstacleIsUnbreakable() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        // Dirt at foot, bedrock at head: clearing the foot still leaves a solid head cell.
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.BEDROCK.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node[] neighbors = new Node[32];
+        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(neighbors, count, BOT.east(2)),
+            "a head-level unbreakable obstacle must not produce a DIG edge");
+    }
+
+    @Test
+    void generatesNoDigNeighborIntoUnbreakableBeyondCell() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        // The destination itself is bedrock: never route the bot into a cell it cannot enter.
+        states.put(BOT.east(2), Blocks.BEDROCK.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node[] neighbors = new Node[32];
+        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(neighbors, count, BOT.east(2)),
+            "an unbreakable destination must not be force-marked walkable");
+    }
+
+    @Test
+    void generatesNoDigNeighborIntoLavaBeyondCell() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2), Blocks.LAVA.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node[] neighbors = new Node[32];
+        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(neighbors, count, BOT.east(2)),
+            "a lava destination is not a passable DIG target");
+    }
+
+    @Test
+    void doesNotReAddNeighborsAlreadyPresentOrDoubleTheirCost() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node current = new Node(BOT.getX(), BOT.getY(), BOT.getZ());
+        Node[] first = new Node[32];
+        int firstCount = evaluator.addSpecialEdges(first, 0, current);
+        Node dig = find(first, firstCount, BOT.east(2));
+        assertNotNull(dig);
+        float chargedOnce = dig.costMalus;
+
+        // Second pass with the first pass pre-seeded, as repeated A* expansion would do.
+        Node[] second = new Node[32];
+        System.arraycopy(first, 0, second, 0, firstCount);
+        int secondCount = evaluator.addSpecialEdges(second, firstCount, current);
+
+        assertEquals(firstCount, secondCount, "already-present neighbors must not be re-added");
+        assertEquals(chargedOnce, dig.costMalus, 0.001f, "edge cost must not be charged twice");
+    }
+
+    @Test
+    void respectsTheNeighborArrayCapacity() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node[] neighbors = new Node[32];
+        for (int i = 0; i < neighbors.length; i++) {
+            neighbors[i] = new Node(100 + i, 70, 10);
+        }
+
+        int count = evaluator.addSpecialEdges(
+            neighbors, neighbors.length, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertEquals(neighbors.length, count, "a full neighbors array must not overflow");
+    }
+
+    @Test
+    void generatesNoPlaceNeighborWithoutScaffoldBlocks() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(new BlockPos(11, 65, 10), Blocks.STONE.defaultBlockState());
+
+        mobCarrying();
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        Node[] neighbors = new Node[32];
+        int count = evaluator.addSpecialEdges(neighbors, 0, new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(neighbors, count, BOT.east()),
+            "no scaffold block in the inventory means no PLACE edge across a deep gap");
+    }
+
+    @Test
     void generatesNoPillarUpNeighborWithoutScaffoldBlocks() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());

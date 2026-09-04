@@ -8,6 +8,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.PathNavigationRegion;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
@@ -88,31 +89,24 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     }
 
     /**
-     * DIG edge: the foot and/or head cell one step in {@code direction} is a
-     * safe breakable block and the column beyond it is open. The edge lands
-     * beyond the obstacle; the cost prices the (first) breakable obstacle cell.
+     * DIG edge: the foot cell one step in {@code direction} is a safe breakable
+     * block, the head cell is breakable the same way or already passable, and the
+     * two cells beyond the obstacle are passable (open and not lava). The edge
+     * lands beyond the obstacle and prices the foot dig; the navigation layer
+     * clears any head block too.
      */
     private int tryDigEdge(Node[] neighbors, int count, BlockPos pos, Direction direction) {
         BlockPos foot = pos.relative(direction);
         BlockPos head = foot.above();
-        boolean footDig = canDig(foot);
-        boolean headDig = canDig(head);
-        if (!footDig && !headDig) {
+        if (!canDig(foot) || !(canDig(head) || isPassable(head))) {
             return count;
         }
         BlockPos beyond = foot.relative(direction);
-        if (DigRules.isBreakable(world, beyond, false) || DigRules.isBreakable(world, beyond.above(), false)) {
+        if (!isPassable(beyond) || !isPassable(beyond.above())) {
             return count;
         }
         Node node = getNode(beyond.getX(), beyond.getY(), beyond.getZ());
-        if (contains(neighbors, count, node) || count >= neighbors.length) {
-            return count;
-        }
-        node.costMalus += DigPlaceCosts.digCost(world, footDig ? foot : head);
-        node.type = BlockPathTypes.WALKABLE;
-        moveTypes.put(node.hashCode(), MoveType.DIG);
-        neighbors[count] = node;
-        return count + 1;
+        return appendEdge(neighbors, count, node, MoveType.DIG, DigPlaceCosts.digCost(world, foot));
     }
 
     /**
@@ -140,14 +134,7 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
             return count;
         }
         Node node = getNode(foot.getX(), foot.getY(), foot.getZ());
-        if (contains(neighbors, count, node) || count >= neighbors.length) {
-            return count;
-        }
-        node.costMalus += DigPlaceCosts.placeCost();
-        node.type = BlockPathTypes.WALKABLE;
-        moveTypes.put(node.hashCode(), MoveType.PLACE);
-        neighbors[count] = node;
-        return count + 1;
+        return appendEdge(neighbors, count, node, MoveType.PLACE, DigPlaceCosts.placeCost());
     }
 
     /**
@@ -164,12 +151,21 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
             return count;
         }
         Node node = getNode(above.getX(), above.getY(), above.getZ());
-        if (contains(neighbors, count, node) || count >= neighbors.length) {
+        return appendEdge(neighbors, count, node, MoveType.PILLAR_UP, DigPlaceCosts.pillarUpCost());
+    }
+
+    /**
+     * Stores {@code node} as a {@code type} neighbor with {@code extraCost} added
+     * to its cost malus, unless the neighbors array is full or the node is already
+     * present (identity — A* caches one {@link Node} instance per coordinate).
+     */
+    private int appendEdge(Node[] neighbors, int count, Node node, MoveType type, float extraCost) {
+        if (count >= neighbors.length || contains(neighbors, count, node)) {
             return count;
         }
-        node.costMalus += DigPlaceCosts.pillarUpCost();
+        node.costMalus += extraCost;
         node.type = BlockPathTypes.WALKABLE;
-        moveTypes.put(node.hashCode(), MoveType.PILLAR_UP);
+        moveTypes.put(node.hashCode(), type);
         neighbors[count] = node;
         return count + 1;
     }
@@ -194,6 +190,11 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     private boolean isOpen(BlockPos pos) {
         BlockState state = world.getBlockState(pos);
         return state.isAir() || state.canBeReplaced() || isLiquid(state.getFluidState());
+    }
+
+    /** Whether a cell beyond a dug tunnel can actually be entered: open and not lava. */
+    private boolean isPassable(BlockPos pos) {
+        return isOpen(pos) && !world.getBlockState(pos).is(Blocks.LAVA);
     }
 
     /** Whether the given fluid state is water or lava. */
