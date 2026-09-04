@@ -60,8 +60,13 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     /** Returns vanilla and special transition candidates after {@link #prepare} has been called. */
     public List<VasyanEdge> getEdges(PathNavigationRegion region, Node current) {
         Node[] neighbors = new Node[32];
-        int count = super.getNeighbors(neighbors, current);
+        int count = getVanillaNeighbors(neighbors, current);
         return getEdges(current, neighbors, count);
+    }
+
+    /** Gets vanilla neighbors; isolated tests may provide a region-backed fixture. */
+    protected int getVanillaNeighbors(Node[] neighbors, Node current) {
+        return super.getNeighbors(neighbors, current);
     }
 
     List<VasyanEdge> getEdges(Node current, Node[] vanillaNeighbors, int vanillaCount) {

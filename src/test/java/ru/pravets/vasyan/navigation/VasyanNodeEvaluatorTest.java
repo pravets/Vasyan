@@ -4,6 +4,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.PathNavigationRegion;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -320,6 +321,9 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
 
         world.clear();
         mobCarrying();
+        VasyanEdge second = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.east(2), MoveType.DIG);
+        assertNull(second);
         assertTrue(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())).stream()
             .noneMatch(edge -> edge.moveType() != MoveType.WALK));
         assertEquals(firstType, first.moveType());
@@ -359,11 +363,16 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
         mobCarrying(Blocks.DIRT);
-        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states)) {
+            @Override
+            protected int getVanillaNeighbors(Node[] neighbors, Node current) {
+                neighbors[0] = new Node(BOT.getX() + 2, BOT.getY(), BOT.getZ());
+                return 1;
+            }
+        };
         Node current = new Node(BOT.getX(), BOT.getY(), BOT.getZ());
-        Node duplicateDestination = new Node(BOT.getX() + 2, BOT.getY(), BOT.getZ());
-
-        List<VasyanEdge> edges = evaluator.getEdges(current, new Node[] { duplicateDestination }, 1);
+        PathNavigationRegion region = mock(PathNavigationRegion.class);
+        List<VasyanEdge> edges = evaluator.getEdges(region, current);
 
         assertTrue(edges.stream().anyMatch(edge -> edge.moveType() == MoveType.DIG
             && edge.to().asBlockPos().equals(BOT.east(2))));
