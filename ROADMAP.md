@@ -63,13 +63,17 @@ Approved 2026-08-21 with Иосиф Правец.
 3. Бюджеты: `thinkTimeout` (общий мс), `tickTimeout` (мс на тик), `searchRadius` — планирование пути не фризит сервер.
 4. Юнит-тесты на генерацию ходов (`AbstractMinecraftTest`) + RCON-сценарии в behavior_test.py («пройти реку», «встать adjacent к блоку»).
 
-#### P2 — Движок с копанием/строительством
+#### P2 — Движок с копанием/строительством ✅ (ожидает CI)
 
 1. Кастомный `NodeEvaluator` (расширение `WalkNodeEvaluator`) с ходами DIG / PLACE / PILLAR-UP как рёбрами графа.
 2. Цены ходов в `VasyanConfig`: `digCost`, `placeCost`, `liquidCost`, `entityCost`, `maxDropDown`; scaffold-whitelist блоков.
 3. Выбор лучшего инструмента из `VasyanInventory` перед DIG-ходом (аналог `bestHarvestTool`).
 4. Правила безопасности: `dontCreateFlow` (не ломать рядом с жидкостью), не копать под падающими блоками.
 5. Авто-replan при изменении мира по пути.
+
+Реализовано: `VasyanNodeEvaluator` достраивает рёбра DIG / PLACE / PILLAR_UP поверх ванильных соседей, `VasyanPathFinder` ищет маршрут A* по этим рёбрам, `VasyanPathNavigation` исполняет их на сервере (копание коридора, мост по одному блоку, столб с прыжком) с авто-replan по lookahead; цены, `maxDropDown` и `scaffoldWhitelist` — в конфиге `[navigation]`. Навигация включена через `VasyanEntity.createNavigation`. Проверка — RCON-сценарий K в `scripts/behavior/behavior_test.py` (стена + провал глубже `maxDropDown` + обрыв, без legacy-восстановления); прогон — в CI workflow behavior-tests.
+
+**Далее:** P3 — дальние маршруты.
 
 #### P3 — Дальние маршруты
 
