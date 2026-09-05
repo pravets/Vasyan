@@ -7,8 +7,6 @@ import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
@@ -23,7 +21,6 @@ import ru.pravets.vasyan.entity.VasyanTeleportUtil;
 
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Server-side glue translating {@link PathMonitor} decisions into real navigation/world
@@ -53,29 +50,6 @@ import java.util.Set;
  * @author Iosif Pravets &lt;i@pravets.ru&gt;
  */
 public final class VasyanPathing {
-
-    /**
-     * Blocks the DIG_THROUGH fallback must never break, on top of the generic
-     * "negative destroy speed means unbreakable" rule (which also covers this set).
-     */
-    private static final Set<Block> UNBREAKABLE = Set.of(
-        Blocks.BEDROCK, Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN, Blocks.REINFORCED_DEEPSLATE);
-
-    /**
-     * Ores the navigation layer must never break: digThrough / clearVerticalStep
-     * destroy blocks WITHOUT drops, so carving through a vein would silently
-     * delete the resource the bot was sent to gather. Ore is mined as a target.
-     */
-    private static final Set<Block> NEVER_BREAK = Set.of(
-        Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
-        Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
-        Blocks.COPPER_ORE, Blocks.DEEPSLATE_COPPER_ORE,
-        Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE,
-        Blocks.REDSTONE_ORE, Blocks.DEEPSLATE_REDSTONE_ORE,
-        Blocks.LAPIS_ORE, Blocks.DEEPSLATE_LAPIS_ORE,
-        Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
-        Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE,
-        Blocks.NETHER_GOLD_ORE, Blocks.NETHER_QUARTZ_ORE, Blocks.ANCIENT_DEBRIS);
 
     /** Ground walking speed modifier passed to {@link PathNavigation#moveTo(double, double, double, double)}. */
     private static final double GROUND_SPEED = 1.0;
@@ -231,7 +205,9 @@ public final class VasyanPathing {
         boolean full = policy == RecoveryPolicy.FULL;
         BlockPos diggable = full ? findDiggableAhead(vasyan, monitor.goal()) : null;
         boolean canDig = full && diggable != null;
-        boolean canPlace = full && findScaffoldStack(vasyan) != null;
+        boolean canPlace = full && ScaffoldBlocks.findBestStack(
+            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get()) != null;
 
         // Contract: hasPath == "path currently assigned" == !navDone.
         PathMonitor.Decision decision =
@@ -409,7 +385,7 @@ public final class VasyanPathing {
 
             @Override
             public boolean isBreakable(BlockPos pos) {
-                return VasyanPathing.isBreakable(level, pos);
+                return DigRules.isBreakable(level, pos, false);
             }
 
             @Override
@@ -469,7 +445,7 @@ public final class VasyanPathing {
         String name = vasyan.getVasyanName();
         Level level = vasyan.level();
         BlockState state = level.getBlockState(planned.target());
-        if (!isBreakable(level, planned.target())) {
+        if (!DigRules.isBreakable(level, planned.target(), false)) {
             VasyanMod.LOGGER.warn("Vasyan '{}': {} CLEAR skipped, {} no longer breakable",
                 name, planned.mode(), planned.target().toShortString());
             return false;
@@ -511,7 +487,9 @@ public final class VasyanPathing {
                 name, monitor.goal().describe());
             return false;
         }
-        ItemStack stack = findScaffoldStack(vasyan);
+        ItemStack stack = ScaffoldBlocks.findBestStack(
+            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get());
         if (stack == null) {
             VasyanMod.LOGGER.warn("Vasyan '{}': support placement failed, no scaffold block", name);
             return false;
@@ -590,7 +568,9 @@ public final class VasyanPathing {
         // A boxed bot can climb out by breaking a step into the pit wall (CLEAR/MOVE)
         // even with an empty inventory. Only refuse the escape when the ascent needs
         // placed support and no scaffold blocks are available.
-        if (canAscendByClearing(botPos, escapeAnchor, verticalWorld(level)) || findScaffoldStack(vasyan) != null) {
+        if (canAscendByClearing(botPos, escapeAnchor, verticalWorld(level))
+                || ScaffoldBlocks.findBestStack(vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+                    VasyanConfig.NAV_SCAFFOLD_WHITELIST.get()) != null) {
             return escapeAnchor;
         }
         return null;
@@ -639,7 +619,7 @@ public final class VasyanPathing {
             ? new BlockPos[]{pos, pos.above()}
             : new BlockPos[]{pos, pos.below()};
         for (BlockPos cell : corridorCells) {
-            if (!isBreakable(level, cell)) {
+            if (!DigRules.isBreakable(level, cell, false)) {
                 continue;
             }
             BlockState state = level.getBlockState(cell);
@@ -668,7 +648,9 @@ public final class VasyanPathing {
      */
     private static void placeScaffold(VasyanEntity vasyan, PathMonitor monitor) {
         String name = vasyan.getVasyanName();
-        ItemStack stack = findScaffoldStack(vasyan);
+        ItemStack stack = ScaffoldBlocks.findBestStack(
+            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get());
         if (stack == null) {
             VasyanMod.LOGGER.warn("Vasyan '{}': PLACE_SCAFFOLD skipped, no solid block item", name);
             return;
@@ -753,7 +735,7 @@ public final class VasyanPathing {
                     name, pos.toShortString());
                 continue;
             }
-            if (!isBreakable(level, pos)) {
+            if (!DigRules.isBreakable(level, pos, false)) {
                 continue;
             }
             if (level.destroyBlock(pos, true)) {
@@ -796,10 +778,10 @@ public final class VasyanPathing {
         Direction dir = facingToward(vasyan, VasyanGoal.anchor(goal, vasyan.blockPosition()));
         BlockPos cursor = vasyan.blockPosition();
         for (int step = 0; step < AHEAD_SCAN_STEPS; step++) {
-            if (isBreakable(level, cursor)) {
+            if (DigRules.isBreakable(level, cursor, false)) {
                 return cursor;
             }
-            if (isBreakable(level, cursor.above())) {
+            if (DigRules.isBreakable(level, cursor.above(), false)) {
                 return cursor.above();
             }
             cursor = cursor.relative(dir);
@@ -825,23 +807,6 @@ public final class VasyanPathing {
             return dz > 0 ? Direction.SOUTH : Direction.NORTH;
         }
         return vasyan.getDirection();
-    }
-
-    /** Whether the block at {@code pos} is a real obstacle the bot may break. */
-    private static boolean isBreakable(Level level, BlockPos pos) {
-        BlockState state = level.getBlockState(pos);
-        if (state.isAir() || isLiquid(state.getFluidState()) || state.canBeReplaced()) {
-            return false;
-        }
-        // Ores are never broken by navigation: digThrough and clearVerticalStep
-        // both destroy blocks WITHOUT drops, so tunnelling/carving through a
-        // vein silently deletes the resource the bot was sent to gather
-        // (Alex' station route ate a coal vein). Ore must be mined as a target.
-        if (NEVER_BREAK.contains(state.getBlock())) {
-            return false;
-        }
-        return !UNBREAKABLE.contains(state.getBlock())
-            && state.getDestroySpeed(level, pos) >= 0.0F;
     }
 
     /**
@@ -870,54 +835,6 @@ public final class VasyanPathing {
     /** Whether the given block position holds water or lava (non-deprecated fluid check). */
     private static boolean isLiquid(FluidState fluid) {
         return fluid.is(Fluids.WATER) || fluid.is(Fluids.LAVA);
-    }
-
-    /**
-     * Best inventory stack usable as scaffold: a block item whose block forms a full collision
-     * cube. Prefer disposable ground materials over logs/planks and never consider partial
-     * shapes (slabs, torches) standable support.
-     *
-     * @return the cheapest matching stack or {@code null} when the inventory holds none
-     */
-    @Nullable
-    private static ItemStack findScaffoldStack(VasyanEntity vasyan) {
-        Level level = vasyan.level();
-        BlockPos refPos = vasyan.blockPosition();
-        ItemStack best = null;
-        int bestScore = Integer.MAX_VALUE;
-        for (ItemStack stack : vasyan.getInventory().getStacks()) {
-            if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem blockItem)) {
-                continue;
-            }
-            BlockState state = blockItem.getBlock().defaultBlockState();
-            if (state.isAir() || isLiquid(state.getFluidState())
-                    || !state.isCollisionShapeFullBlock(level, refPos)) {
-                continue;
-            }
-            int score = scaffoldScore(state);
-            if (score < bestScore) {
-                best = stack;
-                bestScore = score;
-            }
-        }
-        return best;
-    }
-
-    /** Lower score = more disposable scaffold material. */
-    private static int scaffoldScore(BlockState state) {
-        Block block = state.getBlock();
-        if (block == Blocks.DIRT || block == Blocks.GRASS_BLOCK || block == Blocks.SAND
-                || block == Blocks.GRAVEL || block == Blocks.COARSE_DIRT || block == Blocks.ROOTED_DIRT) {
-            return 0;
-        }
-        if (block == Blocks.COBBLESTONE || block == Blocks.STONE || block == Blocks.DEEPSLATE
-                || block == Blocks.NETHERRACK || block == Blocks.BLACKSTONE) {
-            return 1;
-        }
-        if (state.is(net.minecraft.tags.BlockTags.PLANKS) || state.is(net.minecraft.tags.BlockTags.LOGS)) {
-            return 2;
-        }
-        return 3;
     }
 
     /**
