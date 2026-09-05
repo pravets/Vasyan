@@ -33,6 +33,7 @@ class VasyanPathFinderTest {
 
         assertEquals(List.of(MoveType.WALK, MoveType.DIG, MoveType.PLACE, MoveType.PILLAR_UP),
             path.transitions().stream().map(VasyanEdge::moveType).toList());
+        assertEquals(pillared.asBlockPos(), path.getTarget());
         assertEquals(new BlockPos(2, 64, 0), path.transitions().get(1).digFoot());
     }
 

@@ -566,7 +566,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # so the assertion is Chebyshev<=2 AND not standing on top of the block.
         block_b = (wx + 18, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
-        reached, teleported, dug, pretrigger_fired, _ = goto(block_b[0], block_b[1], block_b[2], 120)
+        reached, teleported, dug, pretrigger_fired, scenario_b_segment = goto(block_b[0], block_b[1], block_b[2], 120)
         pos = bot_pos()
         if not pos:
             print("  [FAIL] adjacent stand: could not read bot position")
@@ -575,6 +575,10 @@ def test_pathfinding_scenarios(workdir, jar_path):
         on_top = pos[1] > block_b[1]
         if chebyshev > 2 or on_top:
             print(f"  [FAIL] adjacent stand: pos={pos}, chebyshev={chebyshev}, on_top={on_top}")
+            print("  ---- Scenario B path diagnostics ----")
+            for line in scenario_b_segment.splitlines():
+                if "reconstructed path" in line or "path transition" in line or "execute path transition" in line:
+                    print("  | " + line.rstrip())
             return 1
         print(f"  -> approached obsidian at {pos} (chebyshev={chebyshev})")
 

@@ -5,6 +5,7 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.PathNavigationRegion;
 import net.minecraft.world.level.pathfinder.Node;
 import net.minecraft.world.level.pathfinder.Path;
+import ru.pravets.vasyan.VasyanMod;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -81,7 +82,7 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
         return 0;
     }
 
-    private static VasyanPath reconstruct(SearchState end, List<BlockPos> targets) {
+    private VasyanPath reconstruct(SearchState end, List<BlockPos> targets) {
         List<Node> nodes = new ArrayList<>();
         List<VasyanEdge> edges = new ArrayList<>();
         for (SearchState state = end; state != null; state = state.parent) {
@@ -89,7 +90,18 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
             if (state.incoming != null) edges.add(0, state.incoming);
         }
         BlockPos target = targets.stream().min(Comparator.comparingDouble(end.node::distanceTo)).orElse(end.node.asBlockPos());
-        return new VasyanPath(nodes, edges, target, true);
+        VasyanPath path = new VasyanPath(nodes, edges, target, true);
+        if (vasyanEvaluator.navigationBotName() != null) {
+            String botName = vasyanEvaluator.navigationBotName();
+            VasyanMod.LOGGER.info("Vasyan '{}': reconstructed path target={} nodes={} transitions={}",
+                botName, target, nodes.size(), edges.size());
+            for (int i = 0; i < edges.size(); i++) {
+                VasyanEdge edge = edges.get(i);
+                VasyanMod.LOGGER.info("Vasyan '{}': path transition index={} from={} to={} moveType={}",
+                    botName, i, edge.from().asBlockPos(), edge.to().asBlockPos(), edge.moveType());
+            }
+        }
+        return path;
     }
 
     private record SearchState(Node node, SearchState parent, VasyanEdge incoming, float g, float f, SearchKey key) {

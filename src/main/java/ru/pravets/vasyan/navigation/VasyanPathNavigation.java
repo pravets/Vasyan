@@ -52,6 +52,11 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         if (bot == null || bot.level().isClientSide || !(currentPath instanceof VasyanPath vasyanPath)) return false;
         VasyanEdge edge = vasyanPath.getNextTransition();
         if (edge == null) return false;
+        if (edge.moveType() == MoveType.PILLAR_UP) {
+            VasyanMod.LOGGER.info("Vasyan '{}': execute path transition index={} target={} from={} to={} moveType={} current={}",
+                bot.getVasyanName(), vasyanPath.getNextNodeIndex(), currentPath.getTarget(),
+                edge.from().asBlockPos(), edge.to().asBlockPos(), edge.moveType(), bot.blockPosition());
+        }
         return switch (edge.moveType()) {
             case WALK -> false;
             case DIG -> navigation == null ? digFirst(bot.level(), edge) : navigation.dig(bot, edge);

@@ -48,6 +48,11 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
         this.navigationTarget = target;
     }
 
+    @Nullable
+    String navigationBotName() {
+        return mob instanceof VasyanEntity vasyan ? vasyan.getVasyanName() : null;
+    }
+
     @Override
     public int getNeighbors(Node[] neighbors, Node current) {
         int count = super.getNeighbors(neighbors, current);
