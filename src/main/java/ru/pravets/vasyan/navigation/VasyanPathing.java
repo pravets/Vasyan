@@ -838,7 +838,7 @@ public final class VasyanPathing {
     private static BlockPos scaffoldPosition(VasyanEntity vasyan, VasyanGoal goal) {
         Level level = vasyan.level();
         BlockPos below = vasyan.blockPosition().below();
-        if (isOpen(level, below)) {
+        if (isDeepGap(level, below)) {
             return below;
         }
         BlockPos ahead = aheadPosition(vasyan, goal);
@@ -849,6 +849,21 @@ public final class VasyanPathing {
     private static boolean isOpen(Level level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         return state.isAir() || isLiquid(state.getFluidState()) || state.canBeReplaced();
+    }
+
+    /** Whether an open placement cell is deeper than the normal walk-down limit. */
+    static boolean isDeepGap(Level level, BlockPos pos) {
+        if (!isOpen(level, pos)) {
+            return false;
+        }
+        int maxDropDown = VasyanConfig.NAV_MAX_DROP_DOWN.get();
+        int drop = 0;
+        BlockPos below = pos.below();
+        while (drop <= maxDropDown && isOpen(level, below)) {
+            drop++;
+            below = below.below();
+        }
+        return drop > maxDropDown;
     }
 
     /** Whether the given block position holds water or lava (non-deprecated fluid check). */

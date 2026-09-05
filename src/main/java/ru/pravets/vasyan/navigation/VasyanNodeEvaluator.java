@@ -169,17 +169,7 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
      */
     private void tryPlaceEdge(List<VasyanEdge> edges, Node current, BlockPos pos, Direction direction) {
         BlockPos foot = pos.relative(direction);
-        if (!isOpen(foot)) {
-            return;
-        }
-        int maxDropDown = VasyanConfig.NAV_MAX_DROP_DOWN.get();
-        int drop = 0;
-        BlockPos below = foot.below();
-        while (drop <= maxDropDown && isOpen(below)) {
-            drop++;
-            below = below.below();
-        }
-        if (drop <= maxDropDown) {
+        if (!VasyanPathing.isDeepGap(world, foot)) {
             return;
         }
         if (scaffoldAt(foot) == null) {
