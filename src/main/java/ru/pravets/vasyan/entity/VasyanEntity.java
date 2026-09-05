@@ -93,7 +93,7 @@ public class VasyanEntity extends PathfinderMob {
      * workarounds; swimming removes that whole problem class.
      */
     @Override
-    protected net.minecraft.world.entity.ai.navigation.PathNavigation createNavigation(Level level) {
+    protected VasyanPathNavigation createNavigation(Level level) {
         return new VasyanPathNavigation(this, level);
     }
 

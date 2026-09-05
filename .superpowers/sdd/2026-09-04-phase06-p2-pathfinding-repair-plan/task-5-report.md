@@ -13,7 +13,7 @@ Added `VasyanPathNavigationTest.entityCreatesVasyanPathNavigation`, which verifi
 - Focused navigation, entity, and action tests: passed.
 - `./gradlew.bat compileJava compileTestJava`: passed.
 - `./gradlew.bat test`: passed.
-- Behavior scenarios A-J: not run. The repository's behavior harness contains a force-loading/RCON scenario rather than an A-J suite, and no configured server/runtime environment was available for execution.
+- Behavior scenarios A-J: not executed. `scripts/behavior/behavior_test.py` contains scenarios A-J, but no configured server/RCON runtime was available for execution.
 
 The first focused test attempt exposed only a test-fixture issue: constructing a real navigation from a Mockito entity required an `AttributeMap` stub. The fixture was corrected without changing production behavior.
 
