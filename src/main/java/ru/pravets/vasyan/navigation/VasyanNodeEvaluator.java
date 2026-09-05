@@ -190,9 +190,7 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
      * the navigation layer places the pillar block under the bot.
      */
     private void tryPillarUpEdge(List<VasyanEdge> edges, Node current, BlockPos pos) {
-        if (navigationTarget != null
-                && Math.abs(pos.getY() - navigationTarget.getY())
-                    < Math.abs(pos.getY() + 1 - navigationTarget.getY())) {
+        if (navigationTarget != null && pos.getY() >= navigationTarget.getY()) {
             return;
         }
         BlockPos above = pos.above();

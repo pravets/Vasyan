@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.IdentityHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class VasyanPathFinderTest {
     @Test
@@ -88,6 +89,20 @@ class VasyanPathFinderTest {
             path.transitions().stream().map(VasyanEdge::moveType).toList());
     }
 
+    @Test
+    void clearsNavigationTargetAfterEachSearch() {
+        Node start = node(0, 64, 0), goal = node(1, 64, 0);
+        FixtureEvaluator evaluator = new FixtureEvaluator(start,
+            Map.of(start, List.of(edge(start, goal, MoveType.WALK, 1, null, null, null))));
+        VasyanPathFinder pathFinder = new VasyanPathFinder(evaluator, 100);
+
+        pathFinder.findPath(null, null, Set.of(goal.asBlockPos()), 32, 0, 1.0F);
+        assertNull(evaluator.navigationTarget);
+
+        pathFinder.findPath(null, null, Set.of(), 32, 0, 1.0F);
+        assertNull(evaluator.navigationTarget);
+    }
+
     private static Node node(int x, int y, int z) { return new Node(x, y, z); }
     private static VasyanEdge edge(Node from, Node to, MoveType type, float cost, BlockPos foot, BlockPos head, BlockPos place) {
         return new VasyanEdge(from, to, type, cost, foot, head, place);
@@ -96,7 +111,9 @@ class VasyanPathFinderTest {
     private static final class FixtureEvaluator extends VasyanNodeEvaluator {
         private final Node start;
         private final Map<Node, List<VasyanEdge>> edges;
+        private BlockPos navigationTarget;
         FixtureEvaluator(Node start, Map<Node, List<VasyanEdge>> edges) { super(null, null); this.start = start; this.edges = edges; }
+        @Override public void setNavigationTarget(BlockPos target) { this.navigationTarget = target; }
         @Override public Node getStart() { return start; }
         @Override public void prepare(PathNavigationRegion region, Mob mob) { }
         @Override public void done() { }

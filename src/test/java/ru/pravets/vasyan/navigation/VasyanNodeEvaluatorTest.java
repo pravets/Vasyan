@@ -198,6 +198,47 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void doesNotGeneratePillarUpAtSameYAsNavigationTarget() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        BlockPos current = new BlockPos(BOT.getX(), 201, BOT.getZ());
+        states.put(current.below(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        evaluator.setNavigationTarget(new BlockPos(BOT.getX() + 3, 201, BOT.getZ()));
+
+        assertNull(find(evaluator.getEdges(new Node(current.getX(), current.getY(), current.getZ())),
+            current.above(), MoveType.PILLAR_UP));
+    }
+
+    @Test
+    void doesNotGeneratePillarUpAboveNavigationTarget() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        BlockPos current = new BlockPos(BOT.getX(), 202, BOT.getZ());
+        states.put(current.below(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        evaluator.setNavigationTarget(new BlockPos(BOT.getX() + 3, 201, BOT.getZ()));
+
+        assertNull(find(evaluator.getEdges(new Node(current.getX(), current.getY(), current.getZ())),
+            current.above(), MoveType.PILLAR_UP));
+    }
+
+    @Test
+    void generatesPillarUpWhenNavigationTargetIsHigher() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        evaluator.setNavigationTarget(new BlockPos(BOT.getX() + 3, BOT.getY() + 1, BOT.getZ()));
+
+        assertNotNull(find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.above(), MoveType.PILLAR_UP));
+    }
+
+    @Test
     void generatesNoDigNeighborWhenFootObstacleIsUnbreakable() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
