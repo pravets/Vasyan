@@ -12,6 +12,7 @@ public final class VasyanPath extends Path {
 
     private final List<VasyanEdge> transitions;
 
+    /** Creates a path with one transition per adjacent node pair and immutable owned inputs. */
     public VasyanPath(List<Node> nodes, List<VasyanEdge> transitions, BlockPos target, boolean reachesTarget) {
         super(new ArrayList<>(nodes), target, reachesTarget);
         int expectedTransitions = Math.max(0, nodes.size() - 1);
@@ -27,6 +28,7 @@ public final class VasyanPath extends Path {
         return index < transitions.size() ? transitions.get(index) : null;
     }
 
+    /** Returns the immutable list of exactly node count minus one transitions. */
     public List<VasyanEdge> transitions() { return transitions; }
 
     /** Vanilla mutation is prohibited because it cannot update edge metadata atomically. */

@@ -940,6 +940,14 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # planned edges only.
         plan_idx = course_segment.find("pathfind start target=")
         post_plan = course_segment[plan_idx:] if plan_idx >= 0 else course_segment
+        planned_edges = (
+            re.search(r"Vasyan 'Navigator' DIG at BlockPos\{[^}]+\}", post_plan),
+            re.search(r"Vasyan 'Navigator' PLACE at BlockPos\{[^}]+\} block .+", post_plan),
+            re.search(r"Vasyan 'Navigator' PILLAR_UP at BlockPos\{[^}]+\}", post_plan),
+        )
+        if not all(planned_edges):
+            print("  [FAIL] obstacle course: missing successful planned DIG/PLACE/PILLAR_UP evidence")
+            return 1
         legacy = re.search(
             r"Vasyan 'Navigator': (DIG_THROUGH|PLACE_SCAFFOLD|dug through|placed scaffold"
             r"|hop-teleported|giving up)", post_plan)

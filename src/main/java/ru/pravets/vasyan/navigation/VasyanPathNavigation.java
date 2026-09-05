@@ -14,6 +14,7 @@ import net.minecraft.world.level.pathfinder.PathFinder;
 import net.minecraft.world.entity.ai.navigation.AmphibiousPathNavigation;
 import ru.pravets.vasyan.config.VasyanConfig;
 import ru.pravets.vasyan.entity.VasyanEntity;
+import ru.pravets.vasyan.VasyanMod;
 
 /** Amphibious navigation which executes the metadata on the current path edge. */
 public class VasyanPathNavigation extends AmphibiousPathNavigation {
@@ -53,13 +54,14 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         if (edge == null) return false;
         return switch (edge.moveType()) {
             case WALK -> false;
-            case DIG -> navigation == null ? digFirst(bot.level(), edge) : navigation.dig(bot.level(), edge);
-            case PLACE -> place(bot, edge.placePosition());
-            case PILLAR_UP -> place(bot, edge.placePosition()) && jump(bot);
+            case DIG -> navigation == null ? digFirst(bot.level(), edge) : navigation.dig(bot, edge);
+            case PLACE -> place(bot, edge.placePosition(), "PLACE");
+            case PILLAR_UP -> place(bot, edge.placePosition(), "PILLAR_UP") && jumpAndLog(bot, edge.placePosition());
         };
     }
 
-    private boolean dig(Level world, VasyanEdge edge) {
+    private boolean dig(VasyanEntity bot, VasyanEdge edge) {
+        Level world = bot.level();
         if (pendingDig != edge) {
             pendingDig = edge;
             dugFoot = false;
@@ -67,10 +69,12 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         }
         if (!dugFoot && edge.digFoot() != null && DigRules.isSafeToDig(world, edge.digFoot())) {
             dugFoot = destroy(world, edge.digFoot());
+            if (dugFoot) VasyanMod.LOGGER.info("Vasyan '{}' DIG at {}", bot.getVasyanName(), edge.digFoot());
             return dugFoot;
         }
         if (!dugHead && edge.digHead() != null && DigRules.isSafeToDig(world, edge.digHead())) {
             dugHead = destroy(world, edge.digHead());
+            if (dugHead) VasyanMod.LOGGER.info("Vasyan '{}' DIG at {}", bot.getVasyanName(), edge.digHead());
             return dugHead;
         }
         dugFoot = edge.digFoot() == null || world.getBlockState(edge.digFoot()).isAir();
@@ -93,6 +97,10 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
     }
 
     static boolean place(VasyanEntity bot, BlockPos pos) {
+        return place(bot, pos, "PLACE");
+    }
+
+    private static boolean place(VasyanEntity bot, BlockPos pos, String moveType) {
         if (pos == null) return false;
         Level world = bot.level();
         if (!placeableInto(world.getBlockState(pos)) || !hasAdjacentSolid(world, pos)) return false;
@@ -101,6 +109,8 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         if (stack == null || !(stack.getItem() instanceof BlockItem item)) return false;
         if (!world.setBlockAndUpdate(pos, item.getBlock().defaultBlockState())) return false;
         stack.shrink(1);
+        VasyanMod.LOGGER.info("Vasyan '{}' {} at {} block {}", bot.getVasyanName(), moveType, pos,
+            item.getBlock().getName().getString());
         return true;
     }
 
@@ -121,6 +131,12 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
     private static boolean jump(VasyanEntity bot) {
         bot.getJumpControl().jump();
         return true;
+    }
+
+    private static boolean jumpAndLog(VasyanEntity bot, BlockPos pos) {
+        boolean jumped = jump(bot);
+        if (jumped) VasyanMod.LOGGER.info("Vasyan '{}' PILLAR_UP at {}", bot.getVasyanName(), pos);
+        return jumped;
     }
 
     private static boolean hasAdjacentSolid(Level world, BlockPos pos) {
