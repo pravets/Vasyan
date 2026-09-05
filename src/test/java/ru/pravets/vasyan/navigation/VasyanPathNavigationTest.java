@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.Node;
+import net.minecraft.world.level.pathfinder.Path;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import ru.pravets.vasyan.entity.VasyanEntity;
@@ -113,6 +114,72 @@ class VasyanPathNavigationTest extends AbstractMinecraftTest {
         Node to = new Node(foot.getX() + 1, foot.getY(), foot.getZ());
         VasyanEdge dig = new VasyanEdge(from, to, MoveType.DIG, 4f, foot, null, null);
         return new VasyanPath(List.of(from, to), List.of(dig), to.asBlockPos(), true);
+    }
+
+    @Test
+    void replacementWalkPathClearsStalePendingDigState() {
+        BlockPos foot = new BlockPos(1, 64, 0);
+        Node from = new Node(0, 64, 0);
+        Node to = new Node(1, 64, 0);
+        VasyanEdge oldDig = new VasyanEdge(from, to, MoveType.DIG, 4f, foot, null, null);
+        VasyanPath replacement = new VasyanPath(List.of(from, to), List.of(
+            new VasyanEdge(from, to, MoveType.WALK, 1f, null, null, null)), to.asBlockPos(), true);
+        TestNavigation navigation = new TestNavigation();
+        navigation.setPendingDig(oldDig);
+        navigation.setPath(replacement);
+
+        navigation.invokeFollowThePath();
+
+        assertFalse(navigation.isDigBlocked(), "a replacement WALK edge must not be blocked by old DIG progress");
+        assertTrue(navigation.isDigStateCleared(), "stale DIG metadata must be cleared with the pending edge");
+    }
+
+    private static final class TestNavigation extends VasyanPathNavigation {
+        TestNavigation() {
+            super(bot, VasyanPathNavigationTest.level);
+        }
+
+        void setPath(Path path) {
+            this.path = path;
+        }
+
+        void setPendingDig(VasyanEdge edge) {
+            setField("pendingDig", edge);
+        }
+
+        void invokeFollowThePath() {
+            followThePath();
+        }
+
+        boolean isDigBlocked() {
+            return getField("pendingDig") != null;
+        }
+
+        boolean isDigStateCleared() {
+            return getField("pendingDig") == null
+                && !((Boolean) getField("dugFoot")) && !((Boolean) getField("dugHead"));
+        }
+
+        private void setField(String name, Object value) {
+            try {
+                var field = VasyanPathNavigation.class.getDeclaredField(name);
+                field.setAccessible(true);
+                field.set(this, value);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError(exception);
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private <T> T getField(String name) {
+            try {
+                var field = VasyanPathNavigation.class.getDeclaredField(name);
+                field.setAccessible(true);
+                return (T) field.get(this);
+            } catch (ReflectiveOperationException exception) {
+                throw new AssertionError(exception);
+            }
+        }
     }
 
     @Test

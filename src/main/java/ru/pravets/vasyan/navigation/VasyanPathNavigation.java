@@ -39,6 +39,13 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         if (!level.isClientSide && mob instanceof VasyanEntity vasyan) {
             executeNextEdge(vasyan, path, this);
             maybeReplan(vasyan, path);
+            VasyanEdge activeEdge = path instanceof VasyanPath vasyanPath
+                ? vasyanPath.getNextTransition() : null;
+            if (pendingDig != activeEdge) {
+                pendingDig = null;
+                dugFoot = false;
+                dugHead = false;
+            }
             if (pendingDig != null && !digComplete(pendingDig)) return;
         }
         super.followThePath();
