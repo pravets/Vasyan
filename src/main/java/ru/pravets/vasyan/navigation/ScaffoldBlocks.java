@@ -15,6 +15,8 @@ import org.jetbrains.annotations.Nullable;
 
 import ru.pravets.vasyan.entity.VasyanInventory;
 
+import java.util.List;
+
 /**
  * Reusable scaffold-block selection for navigation. Extracted from
  * {@link VasyanPathing} so the path-node evaluator and any other consumer can
@@ -47,6 +49,22 @@ public final class ScaffoldBlocks {
      */
     @Nullable
     public static ItemStack findBestStack(VasyanInventory inventory, Level level, BlockPos refPos) {
+        return findBestStack(inventory, level, refPos, null);
+    }
+
+    /**
+     * Best whitelisted inventory stack usable as scaffold: same selection as
+     * {@link #findBestStack(VasyanInventory, Level, BlockPos)} but only blocks
+     * whose registry id is listed in {@code whitelist} are considered. The path
+     * evaluator uses this with {@code VasyanConfig.NAV_SCAFFOLD_WHITELIST} so it
+     * never plans a PLACE/PILLAR_UP edge the executor would refuse to build.
+     *
+     * @param whitelist block ids ("minecraft:...") allowed as scaffold, or {@code null} for no filter
+     * @return the cheapest matching stack or {@code null} when the inventory holds none
+     */
+    @Nullable
+    public static ItemStack findBestStack(VasyanInventory inventory, Level level, BlockPos refPos,
+                                          @Nullable List<? extends String> whitelist) {
         ItemStack best = null;
         int bestScore = Integer.MAX_VALUE;
         for (ItemStack stack : inventory.getStacks()) {
@@ -58,6 +76,9 @@ public final class ScaffoldBlocks {
                     || !state.isCollisionShapeFullBlock(level, refPos)) {
                 continue;
             }
+            if (whitelist != null && !isWhitelisted(blockItem.getBlock(), whitelist)) {
+                continue;
+            }
             int score = score(state, level, refPos);
             if (score < bestScore) {
                 best = stack;
@@ -65,6 +86,12 @@ public final class ScaffoldBlocks {
             }
         }
         return best;
+    }
+
+    /** Whether the block's registry id is listed in the given whitelist. */
+    private static boolean isWhitelisted(Block block, List<? extends String> whitelist) {
+        String id = block.builtInRegistryHolder().key().location().toString();
+        return whitelist.stream().anyMatch(id::equals);
     }
 
     /**

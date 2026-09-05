@@ -72,11 +72,24 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     List<VasyanEdge> getEdges(Node current, Node[] vanillaNeighbors, int vanillaCount) {
         List<VasyanEdge> edges = new ArrayList<>(vanillaCount + 9);
         for (int i = 0; i < vanillaCount; i++) {
-            edges.add(new VasyanEdge(current, vanillaNeighbors[i], MoveType.WALK, DigPlaceCosts.walkCost(),
+            Node to = vanillaNeighbors[i];
+            edges.add(new VasyanEdge(current, to, MoveType.WALK, walkCost(to.asBlockPos()),
                 null, null, null));
         }
         edges.addAll(getSpecialEdges(current));
         return List.copyOf(edges);
+    }
+
+    /**
+     * WALK step cost: base walk plus {@code NAV_LIQUID_COST} when the
+     * destination cell is liquid (water or lava), per the spec's edge pricing.
+     */
+    private float walkCost(BlockPos destination) {
+        int cost = DigPlaceCosts.walkCost();
+        if (isLiquid(world.getBlockState(destination).getFluidState())) {
+            cost += VasyanConfig.NAV_LIQUID_COST.get();
+        }
+        return cost;
     }
 
     /** Compatibility adapter for callers that only need coordinate neighbors. */
@@ -179,18 +192,17 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
 
     /** Whether the block at {@code pos} may be broken and doing so is safe. */
     private boolean canDig(BlockPos pos) {
-        return DigRules.isBreakable(world, pos, false)
-            && !DigRules.wouldCreateFlow(world, pos)
-            && !DigRules.isFallingBlock(world, pos);
+        return DigRules.isSafeToDig(world, pos);
     }
 
-    /** Whether the bot carries a block it can place as scaffold at {@code refPos}. */
+    /** Whether the bot carries a whitelisted block it can place as scaffold at {@code refPos}. */
     @Nullable
     private ItemStack scaffoldAt(BlockPos refPos) {
         if (!(this.mob instanceof VasyanEntity vasyan)) {
             return null;
         }
-        return ScaffoldBlocks.findBestStack(vasyan.getInventory(), world, refPos);
+        return ScaffoldBlocks.findBestStack(vasyan.getInventory(), world, refPos,
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get());
     }
 
     /** Whether the cell is passable air, liquid or a replaceable block. */

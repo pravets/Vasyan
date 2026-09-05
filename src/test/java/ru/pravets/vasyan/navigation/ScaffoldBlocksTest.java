@@ -135,4 +135,28 @@ class ScaffoldBlocksTest {
         assertSame(inventory.getStacks().get(0), best,
             "the caller shrinks the returned stack by one on placement");
     }
+
+    @Test
+    void whitelistedSelectionIgnoresFullCubesOutsideTheWhitelist() {
+        VasyanInventory inventory = inventoryWith(Blocks.GLASS, Blocks.DIRT);
+        ItemStack best = ScaffoldBlocks.findBestStack(inventory, level(), REF,
+            List.of("minecraft:dirt", "minecraft:cobblestone"));
+        assertEquals(Blocks.DIRT.asItem(), best.getItem(),
+            "only whitelisted blocks may be selected, even when others are full cubes");
+    }
+
+    @Test
+    void whitelistedSelectionReturnsNullWhenNothingCarriedMatches() {
+        VasyanInventory inventory = inventoryWith(Blocks.GLASS);
+        assertNull(ScaffoldBlocks.findBestStack(inventory, level(), REF, List.of("minecraft:dirt")),
+            "a whitelist that excludes everything carried must yield no scaffold");
+    }
+
+    @Test
+    void nullWhitelistKeepsTheUnfilteredLegacySelection() {
+        VasyanInventory inventory = inventoryWith(Blocks.GLASS);
+        ItemStack best = ScaffoldBlocks.findBestStack(inventory, level(), REF, null);
+        assertSame(inventory.getStacks().get(0), best,
+            "null whitelist must behave exactly like the unfiltered findBestStack");
+    }
 }

@@ -79,6 +79,18 @@ public final class DigRules {
     }
 
     /**
+     * Whether the block at {@code pos} may be broken and doing so is safe:
+     * breakable, would not open a flow into liquid, and no gravity block hangs
+     * above. Single source of truth shared by the dig executor, the path-node
+     * evaluator and the auto-replan lookahead.
+     */
+    public static boolean isSafeToDig(Level level, BlockPos pos) {
+        return isBreakable(level, pos, false)
+            && !wouldCreateFlow(level, pos)
+            && !isFallingBlock(level, pos);
+    }
+
+    /**
      * Whether breaking the block at {@code pos} would open a cell next to a
      * flowing/source liquid (water or lava) and risk flooding the tunnel.
      */

@@ -364,11 +364,12 @@ public class VasyanConfig {
             .defineInRange("placeCost", 4, 0, 1000);
 
         NAV_LIQUID_COST = builder
-            .comment("Extra A* cost added to a WALK edge that wades through a liquid cell.")
+            .comment("Extra A* cost added to a WALK edge whose destination cell is liquid (water or lava).")
             .defineInRange("liquidCost", 20, 0, 1000);
 
         NAV_ENTITY_COST = builder
-            .comment("Extra A* cost added to an edge landing in a cell occupied by another entity.")
+            .comment("Reserved for future use: does not affect path costs yet",
+                "(per-cell entity overlap checks are too expensive to run per A* node).")
             .defineInRange("entityCost", 8, 0, 1000);
 
         NAV_MAX_DROP_DOWN = builder

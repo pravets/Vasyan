@@ -291,6 +291,69 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void generatesNoPlaceNeighborWhenScaffoldIsNotWhitelisted() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(new BlockPos(11, 65, 10), Blocks.STONE.defaultBlockState());
+
+        mobCarrying(Blocks.GLASS);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(edges, BOT.east(), MoveType.PLACE),
+            "a full-cube block outside NAV_SCAFFOLD_WHITELIST must not plan a PLACE edge");
+    }
+
+    @Test
+    void generatesNoPillarUpNeighborWhenScaffoldIsNotWhitelisted() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.GLASS);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(edges, BOT.above(), MoveType.PILLAR_UP),
+            "a full-cube block outside NAV_SCAFFOLD_WHITELIST must not plan a PILLAR_UP edge");
+    }
+
+    @Test
+    void stillPlansScaffoldEdgesWhenWhitelistedBlockIsAmongOthers() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(new BlockPos(11, 65, 10), Blocks.STONE.defaultBlockState());
+
+        mobCarrying(Blocks.GLASS, Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNotNull(find(edges, BOT.east(), MoveType.PLACE),
+            "a whitelisted block carried next to non-whitelisted ones still plans a PLACE edge");
+    }
+
+    @Test
+    void walkEdgeIntoLiquidCarriesTheLiquidSurcharge() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.east(), Blocks.WATER.defaultBlockState());
+        states.put(BOT.west(), Blocks.STONE.defaultBlockState());
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+
+        Node current = new Node(BOT.getX(), BOT.getY(), BOT.getZ());
+        Node waterNode = new Node(BOT.getX() + 1, BOT.getY(), BOT.getZ());
+        Node dryNode = new Node(BOT.getX() - 1, BOT.getY(), BOT.getZ());
+        List<VasyanEdge> edges = evaluator.getEdges(current, new Node[]{waterNode, dryNode}, 2);
+
+        VasyanEdge intoWater = find(edges, BOT.east(), MoveType.WALK);
+        VasyanEdge ontoLand = find(edges, BOT.west(), MoveType.WALK);
+        assertNotNull(intoWater);
+        assertNotNull(ontoLand);
+        assertEquals(DigPlaceCosts.walkCost() + VasyanConfig.NAV_LIQUID_COST.get(), intoWater.cost(), 0.001f,
+            "a WALK edge whose destination cell is liquid must carry the NAV_LIQUID_COST surcharge");
+        assertEquals(DigPlaceCosts.walkCost(), ontoLand.cost(), 0.001f,
+            "a WALK edge onto a dry cell must stay at the base walk cost");
+    }
+
+    @Test
     void generatesNoPillarUpNeighborWithoutScaffoldBlocks() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());

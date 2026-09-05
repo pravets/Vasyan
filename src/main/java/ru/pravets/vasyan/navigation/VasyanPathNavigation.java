@@ -7,6 +7,7 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.level.pathfinder.Path;
 import net.minecraft.world.level.pathfinder.PathFinder;
@@ -64,11 +65,11 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
             dugFoot = false;
             dugHead = false;
         }
-        if (!dugFoot && edge.digFoot() != null && canDig(world, edge.digFoot())) {
+        if (!dugFoot && edge.digFoot() != null && DigRules.isSafeToDig(world, edge.digFoot())) {
             dugFoot = destroy(world, edge.digFoot());
             return dugFoot;
         }
-        if (!dugHead && edge.digHead() != null && canDig(world, edge.digHead())) {
+        if (!dugHead && edge.digHead() != null && DigRules.isSafeToDig(world, edge.digHead())) {
             dugHead = destroy(world, edge.digHead());
             return dugHead;
         }
@@ -79,13 +80,7 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
 
     private static boolean digFirst(Level world, VasyanEdge edge) {
         BlockPos pos = edge.digFoot() != null ? edge.digFoot() : edge.digHead();
-        return pos != null && canDig(world, pos) && destroy(world, pos);
-    }
-
-    private static boolean canDig(Level world, BlockPos pos) {
-        return DigRules.isBreakable(world, pos, false)
-            && !DigRules.wouldCreateFlow(world, pos)
-            && !DigRules.isFallingBlock(world, pos);
+        return pos != null && DigRules.isSafeToDig(world, pos) && destroy(world, pos);
     }
 
     private static boolean destroy(Level world, BlockPos pos) {
@@ -97,42 +92,35 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
             && (edge.digHead() == null || level.getBlockState(edge.digHead()).isAir());
     }
 
-    private static boolean place(VasyanEntity bot, BlockPos pos) {
+    static boolean place(VasyanEntity bot, BlockPos pos) {
         if (pos == null) return false;
         Level world = bot.level();
-        if (!world.getBlockState(pos).isAir() || !hasAdjacentSolid(world, pos)) return false;
-        ItemStack stack = findAllowedStack(bot, pos);
-        if (stack == null || !(stack.getItem() instanceof BlockItem item) || !allowed(item)) return false;
+        if (!placeableInto(world.getBlockState(pos)) || !hasAdjacentSolid(world, pos)) return false;
+        ItemStack stack = ScaffoldBlocks.findBestStack(bot.getInventory(), world, pos,
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get());
+        if (stack == null || !(stack.getItem() instanceof BlockItem item)) return false;
         if (!world.setBlockAndUpdate(pos, item.getBlock().defaultBlockState())) return false;
         stack.shrink(1);
         return true;
     }
 
+    /**
+     * Whether a scaffold block may go into this cell: air, replaceable (grass,
+     * snow) or liquid — the same openness the planner assumes, so bots can
+     * bridge over water like they swim through it.
+     */
+    private static boolean placeableInto(BlockState state) {
+        return state.isAir() || state.canBeReplaced() || isLiquid(state);
+    }
+
+    private static boolean isLiquid(BlockState state) {
+        FluidState fluid = state.getFluidState();
+        return fluid.is(Fluids.WATER) || fluid.is(Fluids.LAVA);
+    }
+
     private static boolean jump(VasyanEntity bot) {
         bot.getJumpControl().jump();
         return true;
-    }
-
-    private static boolean allowed(BlockItem item) {
-        String id = item.getBlock().builtInRegistryHolder().key().location().toString();
-        return VasyanConfig.NAV_SCAFFOLD_WHITELIST.get().stream().anyMatch(id::equals);
-    }
-
-    private static ItemStack findAllowedStack(VasyanEntity bot, BlockPos pos) {
-        ItemStack best = ItemStack.EMPTY;
-        int bestScore = Integer.MAX_VALUE;
-        for (ItemStack stack : bot.getInventory().getStacks()) {
-            if (!(stack.getItem() instanceof BlockItem item) || !allowed(item)) continue;
-            BlockState state = item.getBlock().defaultBlockState();
-            if (state.isAir() || state.getFluidState().is(Fluids.WATER) || state.getFluidState().is(Fluids.LAVA)
-                    || !state.isCollisionShapeFullBlock(bot.level(), pos)) continue;
-            int score = ScaffoldBlocks.score(state, bot.level(), pos);
-            if (score < bestScore) {
-                best = stack;
-                bestScore = score;
-            }
-        }
-        return best;
     }
 
     private static boolean hasAdjacentSolid(Level world, BlockPos pos) {
@@ -143,25 +131,43 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
         return false;
     }
 
-    private void maybeReplan(VasyanEntity bot, Path currentPath) {
+    void maybeReplan(VasyanEntity bot, Path currentPath) {
         long now = bot.level().getGameTime();
         int interval = VasyanConfig.NAV_REPLAN_CHECK_INTERVAL_TICKS.get();
-        if (now - lastReplanCheck < interval || !(currentPath instanceof VasyanPath vasyanPath)) return;
+        if (lastReplanCheck != Long.MIN_VALUE && now - lastReplanCheck < interval) return;
+        if (!(currentPath instanceof VasyanPath vasyanPath)) return;
         lastReplanCheck = now;
         int start = vasyanPath.getNextNodeIndex();
         int end = Math.min(vasyanPath.transitions().size(), start + LOOKAHEAD_TRANSITIONS);
         for (int i = start; i < end; i++) {
             VasyanEdge edge = vasyanPath.transitions().get(i);
-            if (edge.moveType() == MoveType.DIG && ((edge.digFoot() != null && !level.getBlockState(edge.digFoot()).isAir())
-                    || (edge.digHead() != null && !level.getBlockState(edge.digHead()).isAir()))) {
+            if (edge.moveType() == MoveType.DIG && corridorUndiggable(edge)) {
                 recomputePath();
                 return;
             }
             if ((edge.moveType() == MoveType.PLACE || edge.moveType() == MoveType.PILLAR_UP)
-                    && edge.placePosition() != null && !level.getBlockState(edge.placePosition()).isAir()) {
+                    && edge.placePosition() != null
+                    && !placeableInto(level.getBlockState(edge.placePosition()))) {
                 recomputePath();
                 return;
             }
         }
+    }
+
+    /**
+     * Whether a required DIG corridor cell is still solid but no longer safe to
+     * break. A cell that is still diggable (mid-dig) or already passable
+     * (cleared, replaced by liquid) must NOT replan; only a genuinely
+     * undiggable obstacle must.
+     */
+    private boolean corridorUndiggable(VasyanEdge edge) {
+        return solidButUndiggable(edge.digFoot()) || solidButUndiggable(edge.digHead());
+    }
+
+    private boolean solidButUndiggable(BlockPos pos) {
+        if (pos == null) return false;
+        BlockState state = level.getBlockState(pos);
+        if (state.isAir() || state.canBeReplaced()) return false;
+        return !DigRules.isSafeToDig(level, pos);
     }
 }
