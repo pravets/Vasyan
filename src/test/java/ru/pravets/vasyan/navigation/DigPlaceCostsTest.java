@@ -26,6 +26,7 @@ class DigPlaceCostsTest extends AbstractMinecraftTest {
 
     private static final BlockPos DIRT_POS = new BlockPos(0, 64, 0);
     private static final BlockPos STONE_POS = new BlockPos(1, 64, 0);
+    private static final BlockPos AIR_POS = new BlockPos(2, 64, 0);
 
     private static Level level;
 
@@ -41,6 +42,9 @@ class DigPlaceCostsTest extends AbstractMinecraftTest {
                 if (pos.equals(STONE_POS)) {
                     return Blocks.STONE.defaultBlockState();
                 }
+                if (pos.equals(AIR_POS)) {
+                    return Blocks.AIR.defaultBlockState();
+                }
                 return Blocks.DIRT.defaultBlockState();
             });
     }
@@ -49,6 +53,14 @@ class DigPlaceCostsTest extends AbstractMinecraftTest {
     void dirtCostsLessThanStone() {
         assertTrue(DigPlaceCosts.digCost(level, DIRT_POS) < DigPlaceCosts.digCost(level, STONE_POS),
             "soft dirt must price below hard stone so A* prefers digging the cheap block");
+    }
+
+    @Test
+    void digEdgeCostIncludesBreakableHeadOnly() {
+        assertEquals(DigPlaceCosts.digCost(level, DIRT_POS) + DigPlaceCosts.digCost(level, STONE_POS),
+            DigPlaceCosts.digCost(level, DIRT_POS, STONE_POS));
+        assertEquals(DigPlaceCosts.digCost(level, DIRT_POS),
+            DigPlaceCosts.digCost(level, DIRT_POS, AIR_POS));
     }
 
     @Test

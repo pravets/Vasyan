@@ -132,8 +132,21 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
         if (!isPassable(beyond) || !isPassable(beyond.above())) {
             return;
         }
+        int maxDropDown = VasyanConfig.NAV_MAX_DROP_DOWN.get();
+        int drop = 0;
+        BlockPos support = beyond.below();
+        while (drop <= maxDropDown && isOpen(support)) {
+            drop++;
+            support = support.below();
+        }
+        // Unbounded mock/void space has no known landing surface; only reject a
+        // shaft when a solid support is actually found deeper than the limit.
+        boolean hasDeepSupport = drop > maxDropDown && !isOpen(support);
+        if (hasDeepSupport) {
+            return;
+        }
         Node node = getNode(beyond.getX(), beyond.getY(), beyond.getZ());
-        edges.add(new VasyanEdge(current, node, MoveType.DIG, DigPlaceCosts.digCost(world, foot), foot, head, null));
+        edges.add(new VasyanEdge(current, node, MoveType.DIG, DigPlaceCosts.digCost(world, foot, head), foot, head, null));
     }
 
     /**

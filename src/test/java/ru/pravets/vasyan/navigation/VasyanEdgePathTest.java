@@ -105,17 +105,14 @@ class VasyanEdgePathTest {
     }
 
     @Test
-    void inheritedPathOperationsCanMutateItsDefensiveNodeCopy() {
+    void inheritedPathOperationsAreRejectedToPreserveTransitions() {
         Node first = node(0, 64, 0);
         Node second = node(1, 64, 0);
         VasyanPath path = new VasyanPath(List.of(first, second),
             List.of(edge(first, second, MoveType.WALK, 1, null, null, null)), second.asBlockPos(), true);
 
-        path.replaceNode(0, node(5, 64, 0));
-        path.truncateNodes(1);
-
-        assertEquals(1, path.getNodeCount());
-        assertEquals(new BlockPos(5, 64, 0), path.getNodePos(0));
+        assertThrows(UnsupportedOperationException.class, () -> path.replaceNode(0, node(5, 64, 0)));
+        assertThrows(UnsupportedOperationException.class, () -> path.truncateNodes(1));
     }
 
     @Test

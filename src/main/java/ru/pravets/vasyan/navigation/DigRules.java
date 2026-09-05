@@ -85,7 +85,8 @@ public final class DigRules {
      * evaluator and the auto-replan lookahead.
      */
     public static boolean isSafeToDig(Level level, BlockPos pos) {
-        return isBreakable(level, pos, false)
+        return !level.getBlockState(pos).hasBlockEntity()
+            && isBreakable(level, pos, false)
             && !wouldCreateFlow(level, pos)
             && !isFallingBlock(level, pos);
     }

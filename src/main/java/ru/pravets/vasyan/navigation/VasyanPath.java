@@ -28,4 +28,16 @@ public final class VasyanPath extends Path {
     }
 
     public List<VasyanEdge> transitions() { return transitions; }
+
+    /** Vanilla mutation is prohibited because it cannot update edge metadata atomically. */
+    @Override
+    public void truncateNodes(int length) {
+        throw new UnsupportedOperationException("VasyanPath transitions are immutable");
+    }
+
+    /** Vanilla mutation is prohibited because it cannot update edge endpoints atomically. */
+    @Override
+    public void replaceNode(int index, Node node) {
+        throw new UnsupportedOperationException("VasyanPath transitions are immutable");
+    }
 }

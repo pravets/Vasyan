@@ -147,7 +147,8 @@ public class VasyanPathNavigation extends AmphibiousPathNavigation {
             }
             if ((edge.moveType() == MoveType.PLACE || edge.moveType() == MoveType.PILLAR_UP)
                     && edge.placePosition() != null
-                    && !placeableInto(level.getBlockState(edge.placePosition()))) {
+                    && (!placeableInto(level.getBlockState(edge.placePosition()))
+                        || !hasAdjacentSolid(level, edge.placePosition()))) {
                 recomputePath();
                 return;
             }

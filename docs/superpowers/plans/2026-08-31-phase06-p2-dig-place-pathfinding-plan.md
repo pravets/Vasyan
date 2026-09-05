@@ -1,4 +1,9 @@
-# Phase 0.6 P2 — Dig/Place Pathfinding Implementation Plan
+# Phase 0.6 P2 — Dig/Place Pathfinding Implementation Plan (superseded)
+
+> Historical design record. The implementation and review repairs are tracked in
+> [the Phase 0.6 P2 pathfinding repair plan](2026-09-04-phase06-p2-pathfinding-repair-plan.md).
+> The shipped architecture uses edge-aware `VasyanEdge` metadata and `VasyanPath`; it does
+> not model transitions as `Node -> MoveType` or rely on a thin `PathFinder` wrapper.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

@@ -36,6 +36,15 @@ public final class DigPlaceCosts {
         return VasyanConfig.NAV_DIG_COST.get() + (int) Math.round(hardness * factor);
     }
 
+    /** Total cost for the blocks an edge will destroy: foot plus breakable head. */
+    public static int digCost(Level level, BlockPos foot, BlockPos head) {
+        int cost = digCost(level, foot);
+        if (head != null && DigRules.isBreakable(level, head, false)) {
+            cost += digCost(level, head);
+        }
+        return cost;
+    }
+
     /** Base A* cost of a {@code PLACE} edge (one scaffold block consumed). */
     public static int placeCost() {
         return VasyanConfig.NAV_PLACE_COST.get();

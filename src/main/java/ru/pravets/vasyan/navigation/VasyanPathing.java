@@ -206,7 +206,8 @@ public final class VasyanPathing {
         BlockPos diggable = full ? findDiggableAhead(vasyan, monitor.goal()) : null;
         boolean canDig = full && diggable != null;
         boolean canPlace = full && ScaffoldBlocks.findBestStack(
-            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition()) != null;
+            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get()) != null;
 
         // Contract: hasPath == "path currently assigned" == !navDone.
         PathMonitor.Decision decision =
@@ -487,7 +488,8 @@ public final class VasyanPathing {
             return false;
         }
         ItemStack stack = ScaffoldBlocks.findBestStack(
-            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition());
+            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get());
         if (stack == null) {
             VasyanMod.LOGGER.warn("Vasyan '{}': support placement failed, no scaffold block", name);
             return false;
@@ -567,8 +569,8 @@ public final class VasyanPathing {
         // even with an empty inventory. Only refuse the escape when the ascent needs
         // placed support and no scaffold blocks are available.
         if (canAscendByClearing(botPos, escapeAnchor, verticalWorld(level))
-                || ScaffoldBlocks.findBestStack(
-                    vasyan.getInventory(), vasyan.level(), vasyan.blockPosition()) != null) {
+                || ScaffoldBlocks.findBestStack(vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+                    VasyanConfig.NAV_SCAFFOLD_WHITELIST.get()) != null) {
             return escapeAnchor;
         }
         return null;
@@ -647,7 +649,8 @@ public final class VasyanPathing {
     private static void placeScaffold(VasyanEntity vasyan, PathMonitor monitor) {
         String name = vasyan.getVasyanName();
         ItemStack stack = ScaffoldBlocks.findBestStack(
-            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition());
+            vasyan.getInventory(), vasyan.level(), vasyan.blockPosition(),
+            VasyanConfig.NAV_SCAFFOLD_WHITELIST.get());
         if (stack == null) {
             VasyanMod.LOGGER.warn("Vasyan '{}': PLACE_SCAFFOLD skipped, no solid block item", name);
             return;

@@ -121,6 +121,12 @@ class DigRulesTest {
     }
 
     @Test
+    void chestIsNotSafeToDig() {
+        Level level = levelWith(Map.of(POS, Blocks.CHEST.defaultBlockState()));
+        assertFalse(DigRules.isSafeToDig(level, POS));
+    }
+
+    @Test
     void airIsNotBreakable() {
         Level level = levelWith(Map.of());
         assertFalse(DigRules.isBreakable(level, POS, false), "nothing to break in air");
