@@ -138,6 +138,9 @@ public final class VasyanPathing {
         }
 
         BlockPos target = VasyanGoal.anchor(goal, vasyan.blockPosition());
+        if (goal instanceof GoalAdjacent adjacent) {
+            target = adjacentApproach(vasyan, adjacent.block());
+        }
         steerTo(vasyan, target, speed);
         VasyanMod.LOGGER.info("Vasyan '{}': moveTo {} @{} steering to {}",
             vasyan.getVasyanName(), goal.describe(), speed, target.toShortString());
@@ -533,6 +536,22 @@ public final class VasyanPathing {
         }
         vasyan.getNavigation().moveTo(target.getX() + CENTER_OFFSET, target.getY(),
             target.getZ() + CENTER_OFFSET, speed);
+    }
+
+    private static BlockPos adjacentApproach(VasyanEntity vasyan, BlockPos block) {
+        Level level = vasyan.level();
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos candidate = block.relative(direction);
+            if (passable(level, candidate) && passable(level, candidate.above())) {
+                return candidate;
+            }
+        }
+        return block;
+    }
+
+    private static boolean passable(Level level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return state.isAir() || state.canBeReplaced();
     }
 
     /**
