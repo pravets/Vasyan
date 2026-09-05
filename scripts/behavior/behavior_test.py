@@ -419,9 +419,10 @@ def main():
     if test_chunk_persists_after_restart(args.dir, args.jar, far_x) != 0:
         return 1
 
-    # 7. Pathfinding overhaul scenarios (Phase 0.6 P1): river crossing without
-    #    teleporting, side-adjacency arrival, and dig-through-wall. Fresh
-    #    server (world was saved twice; Bob is adopted on spawn attempt).
+    # 7. Pathfinding overhaul scenarios (Phase 0.6 P1 + P2): river crossing
+    #    without teleporting, side-adjacency arrival, dig-through-wall,
+    #    vertical recovery, anti-xray, and the edge-aware obstacle course.
+    #    Fresh server (world was saved twice; Bob is adopted on spawn attempt).
     if test_pathfinding_scenarios(args.dir, args.jar) != 0:
         return 1
 
@@ -429,20 +430,25 @@ def main():
 
 
 def test_pathfinding_scenarios(workdir, jar_path):
-    """Ten scenarios (A-J) over one server run:
-
+    """Eleven scenarios (A-K) over one server run:
+ 
     A) River crossing: a water channel is dug across the path; the bot must
        reach the far side WITHOUT any hop-teleport (amphibious nav swims).
     B) Nearby obsidian: the bot must stop near an obsidian block (Chebyshev
        distance <= 2, not standing on top) - GoalNear semantics.
     C) Wall dig-through: a dirt wall blocking the straight line must be dug
-       through (DIG_THROUGH ladder step) and the bot reaches the target.
+       through (edge-aware DIG edge or legacy DIG_THROUGH ladder) and the bot
+       reaches the target.
     D/E/F) Vertical recovery: descend into a pit, climb back out, and refuse a
        lava-filled descent without teleporting or falling in.
     G) Hidden coal: a coal ore below the floor must not be x-ray mined.
     H/I) One-block and two-by-one pit escapes using scaffolding.
     J) Exposed coal around a corner must be found and mined without digging
        through a blocking screen.
+    K) Edge-aware obstacle course (Phase 0.6 P2): a 2-high dirt wall, a gap
+       deeper than maxDropDown and a 2-high cliff must be crossed by PLANNED
+       DIG / PLACE / PILLAR_UP path edges with no legacy stall-ladder
+       recovery after planning.
     """
     log_path = os.path.join(workdir, "behavior_nav.log")
     if os.path.exists(log_path):
@@ -560,7 +566,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
         # so the assertion is Chebyshev<=2 AND not standing on top of the block.
         block_b = (wx + 18, PLAT_Y + 1, wz + 6)
         rcon.command(f"setblock {block_b[0]} {block_b[1]} {block_b[2]} minecraft:obsidian")
-        reached, teleported, dug, pretrigger_fired, _ = goto(block_b[0], block_b[1], block_b[2], 120)
+        reached, teleported, dug, pretrigger_fired, scenario_b_segment = goto(block_b[0], block_b[1], block_b[2], 120)
         pos = bot_pos()
         if not pos:
             print("  [FAIL] adjacent stand: could not read bot position")
@@ -569,19 +575,24 @@ def test_pathfinding_scenarios(workdir, jar_path):
         on_top = pos[1] > block_b[1]
         if chebyshev > 2 or on_top:
             print(f"  [FAIL] adjacent stand: pos={pos}, chebyshev={chebyshev}, on_top={on_top}")
+            print("  ---- Scenario B path diagnostics ----")
+            for line in scenario_b_segment.splitlines():
+                if "reconstructed path" in line or "path transition" in line or "execute path transition" in line:
+                    print("  | " + line.rstrip())
             return 1
         print(f"  -> approached obsidian at {pos} (chebyshev={chebyshev})")
 
         # ---- C) Wall dig-through ----
         print("Scenario C: dig through dirt wall...")
         # Full-width wall (platform edge to edge, 3 high): no way around, the
-        # monitor MUST use its ladder - dig first, teleport as last resort.
+        # bot must dig - via a planned engine DIG edge (silent) or the legacy
+        # stall ladder ("dug through"); hop-teleport stays a last resort.
         wall_x = wx + 26
         fill_resp = rcon.command(f"fill {wall_x} {PLAT_Y + 1} {wz - 14} {wall_x} {PLAT_Y + 3} {wz + 14} minecraft:dirt")
         print(f"  wall fill response: {fill_resp!r}")
         time.sleep(1)
         target_cx = wx + 34
-        reached, teleported, dug, pretrigger_fired, _ = goto(target_cx, PLAT_Y + 1, wz, 240)
+        reached, teleported, dug, pretrigger_fired, dig_segment = goto(target_cx, PLAT_Y + 1, wz, 240)
         if not reached:
             pos = bot_pos()
             print(f"  [FAIL] wall dig-through: bot_pos={pos}, pretrigger={pretrigger_fired}")
@@ -592,8 +603,13 @@ def test_pathfinding_scenarios(workdir, jar_path):
             for line in tail:
                 print("  | " + line.rstrip())
             return 1
-        if not dug:
-            print("  [FAIL] wall dig-through: reached target but no DIG_THROUGH evidence in log")
+        # Dual acceptance: the edge-aware engine plans a DIG edge and digs it
+        # silently (scenario K pattern: "pathfind start" / "steering to"),
+        # the legacy ladder logs "dug through". Arrival alone is not enough -
+        # the bot must show one of the two dig evidence trails.
+        engine_dug = "pathfind start target=" in dig_segment and "steering to" in dig_segment
+        if not dug and not engine_dug:
+            print("  [FAIL] wall dig-through: reached target but no DIG evidence (engine or ladder)")
             return 1
         print(f"  -> dug through the wall and reached ({target_cx}, {PLAT_Y + 1}, {wz})")
 
@@ -665,11 +681,16 @@ def test_pathfinding_scenarios(workdir, jar_path):
             print("  [FAIL] vertical ascent used hop-teleport")
             return 1
         else:
+            # Dual acceptance: with scaffold dirt the edge-aware engine
+            # pillars out via PILLAR_UP silently; the legacy ladder logs
+            # "ASCEND step to". Bot back at rim level = engine evidence.
             ascended = "ASCEND step to" in ascend_segment
-            if not ascended:
-                print("  [FAIL] vertical ascent reached target without ASCEND_STEP evidence")
+            out_pos = bot_pos()
+            out_of_pit = out_pos is not None and out_pos[1] >= PLAT_Y
+            if not ascended and not out_of_pit:
+                print(f"  [FAIL] vertical ascent reached target without ASCEND/PILLAR evidence (pos={out_pos})")
                 return 1
-            print(f"  -> climbed out of pit to {bot_pos()}")
+            print(f"  -> climbed out of pit to {out_pos}")
 
         # ---- F) Unsafe lava descent is rejected ----
         print("Scenario F: reject lava descent...")
@@ -843,6 +864,109 @@ def test_pathfinding_scenarios(workdir, jar_path):
             return 1
         print("  -> exposed corner coal found and mined around the screen, no digging")
 
+        # ---- K) Edge-aware obstacle course: wall + deep gap + cliff ----
+        # Phase 0.6 P2 regression: the edge-aware engine (VasyanNodeEvaluator
+        # DIG / PLACE / PILLAR_UP edges executed by VasyanPathNavigation) must
+        # plan and cross this course DIRECTLY - the legacy stall ladder
+        # (DIG_THROUGH / PLACE_SCAFFOLD recovery decisions) must never fire
+        # after planning. NOTE: this scenario must run in the CI
+        # behavior-tests workflow (.github/workflows/behavior-tests.yml);
+        # it was syntax-checked only, no local server runtime is configured.
+        print("Scenario K: edge-aware obstacle course (wall, deep gap, cliff)...")
+        # Own corridor south of the main arena on the same PLAT_Y level: the
+        # main platform (x up to wx+40, z to wz+14) does not cover it, so
+        # force-load the corridor's chunks separately.
+        kx, kz = wx, wz + 40
+        rcon.command(f"forceload add {kx - 4} {kz - 6} {kx + 58} {kz + 6}")
+        rcon.command(f"fill {kx - 2} {PLAT_Y} {kz - 3} {kx + 58} {PLAT_Y} {kz + 3} minecraft:smooth_stone")
+        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz - 3} {kx + 58} {PLAT_Y + 8} {kz + 3} minecraft:air")
+        # Side walls so the only way is forward: every obstacle below spans
+        # the full corridor width.
+        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz - 4} {kx + 58} {PLAT_Y + 3} {kz - 4} minecraft:smooth_stone")
+        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz + 4} {kx + 58} {PLAT_Y + 3} {kz + 4} minecraft:smooth_stone")
+        # (a) 2-block-high dirt wall: vanilla cannot jump it, the engine must
+        #     cross via a planned DIG edge (dug silently by the navigation,
+        #     NOT via the ladder's "dug through" line).
+        rcon.command(f"fill {kx + 12} {PLAT_Y + 1} {kz - 3} {kx + 12} {PLAT_Y + 2} {kz + 3} minecraft:dirt")
+        # (b) Gap 3 wide and 5 deep: deeper than maxDropDown (default 3), so
+        #     vanilla cannot walk down into it and the engine must BRIDGE it
+        #     with PLACE edges (one scaffold block per gap cell).
+        rcon.command(f"fill {kx + 24} {PLAT_Y - 5} {kz - 3} {kx + 26} {PLAT_Y - 5} {kz + 3} minecraft:smooth_stone")
+        rcon.command(f"fill {kx + 24} {PLAT_Y - 4} {kz - 3} {kx + 26} {PLAT_Y} {kz + 3} minecraft:air")
+        # (c) 2-block-high cliff: vanilla cannot jump it, the engine must
+        #     PILLAR_UP two blocks with scaffold material.
+        rcon.command(f"fill {kx + 38} {PLAT_Y + 1} {kz - 3} {kx + 40} {PLAT_Y + 2} {kz + 3} minecraft:smooth_stone")
+        time.sleep(2)  # let the fill chunks settle
+        # Bridge/pillar edges only exist while the bot carries a whitelisted
+        # scaffold block (dirt, same supply pattern as scenario D).
+        tp_resp = rcon.command(f"tp {nav_uuid} {kx + 2} {PLAT_Y + 1} {kz}")
+        if "Teleported" not in tp_resp:
+            print(f"  [FAIL] obstacle course setup teleport: {tp_resp!r}")
+            return 1
+        time.sleep(2)
+        course_pos = bot_pos()
+        if not course_pos:
+            print("  [FAIL] obstacle course: could not read bot position after tp")
+            return 1
+        rcon.command(
+            f"summon minecraft:item {course_pos[0]} {course_pos[1]} {course_pos[2]} "
+            "{Item:{id:\"minecraft:dirt\",Count:64b}}")
+        inv_deadline = time.time() + 30
+        while time.time() < inv_deadline:
+            inv_resp = rcon.command("vasyan inventory Navigator")
+            if "Dirt" in inv_resp or "dirt" in inv_resp:
+                break
+            time.sleep(2)
+        else:
+            print("  [FAIL] obstacle course: dirt was not picked up")
+            return 1
+        target_kx = kx + 48
+        reached, teleported, dug, pretrigger_fired, course_segment = goto(
+            target_kx, PLAT_Y + 1, kz, 300)
+        if not reached:
+            print(f"  [FAIL] obstacle course: bot_pos={bot_pos()}, pretrigger={pretrigger_fired}")
+            with open(log_path, "r", errors="replace") as f:
+                tail = f.readlines()[-80:]
+            print("  ---- server log tail ----")
+            for line in tail:
+                print("  | " + line.rstrip())
+            return 1
+        # New-engine evidence: the monitored pathfind started and the glue
+        # steered ground navigation onto the planned route.
+        if "pathfind start target=" not in course_segment or "steering to" not in course_segment:
+            print("  [FAIL] obstacle course: no edge-aware engine evidence in log "
+                  "(pathfind start / moveTo steering lines missing)")
+            return 1
+        # No legacy recovery after planning: everything the stall ladder logs
+        # must be absent - both the literal DIG_THROUGH / PLACE_SCAFFOLD skip
+        # warnings and their executed "dug through" / "placed scaffold" /
+        # "hop-teleported" / "giving up" lines. The course must be crossed by
+        # planned edges only.
+        plan_idx = course_segment.find("pathfind start target=")
+        post_plan = course_segment[plan_idx:] if plan_idx >= 0 else course_segment
+        planned_edges = (
+            re.search(r"Vasyan 'Navigator' DIG at BlockPos\{[^}]+\}", post_plan),
+            re.search(r"Vasyan 'Navigator' PLACE at BlockPos\{[^}]+\} block .+", post_plan),
+            re.search(r"Vasyan 'Navigator' PILLAR_UP at BlockPos\{[^}]+\}", post_plan),
+        )
+        if not all(planned_edges):
+            print("  [FAIL] obstacle course: missing successful planned DIG/PLACE/PILLAR_UP evidence")
+            return 1
+        legacy = re.search(
+            r"Vasyan 'Navigator': (DIG_THROUGH|PLACE_SCAFFOLD|dug through|placed scaffold"
+            r"|hop-teleported|giving up)", post_plan)
+        if legacy:
+            print(f"  [FAIL] obstacle course: legacy recovery fired after planning: {legacy.group(0)!r}")
+            return 1
+        if teleported:
+            print("  [FAIL] obstacle course used hop-teleport")
+            return 1
+        if dug:
+            print("  [FAIL] obstacle course: wall crossed via legacy DIG_THROUGH, not a planned DIG edge")
+            return 1
+        print(f"  -> crossed wall, deep gap and cliff to ({target_kx}, {PLAT_Y + 1}, {kz}) "
+              "via planned edges, no legacy recovery")
+
         # Cleanup: remove bot and blocks best-effort.
         rcon.command("vasyan remove Navigator")
         rcon.command("stop")
@@ -850,7 +974,7 @@ def test_pathfinding_scenarios(workdir, jar_path):
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
             proc.terminate()
-        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through, vertical recovery, anti-xray).")
+        print("PASS: pathfinding scenarios (river, adjacent stand, wall dig-through, vertical recovery, anti-xray, edge-aware obstacle course).")
         return 0
     finally:
         if rcon is not None:

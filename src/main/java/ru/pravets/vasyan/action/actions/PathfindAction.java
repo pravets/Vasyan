@@ -16,7 +16,7 @@ import net.minecraft.core.BlockPos;
  * {@code enforce()} so monitor decisions (replan / dig / scaffold / hop teleport) are
  * executed by {@link VasyanPathing}.
  *
- * <p>Success means the goal ({@code near(target, 2)}) is reached; failure is either an
+ * <p>Success means the selected target goal is reached; failure is either an
  * exhausted think budget or the monitor giving up after all recovery steps failed. There
  * is no hard tick cap and no blind re-issue loop - the monitor owns stall and replan
  * accounting.</p>
@@ -46,11 +46,22 @@ public class PathfindAction extends BaseAction {
         int z = task.getIntParameter("z", 0);
 
         targetPos = new BlockPos(x, y, z);
-        goal = VasyanGoal.near(targetPos, GOAL_RANGE_BLOCKS);
+        goal = levelTargetIsSolid() ? VasyanGoal.adjacent(targetPos)
+            : VasyanGoal.near(targetPos, GOAL_RANGE_BLOCKS);
         budgets = createBudgets();
         monitor = VasyanPathing.moveTo(vasyan, goal, budgets);
         ru.pravets.vasyan.VasyanMod.LOGGER.info(
             "Vasyan '{}': pathfind start target={}", vasyan.getVasyanName(), targetPos);
+    }
+
+    private boolean levelTargetIsSolid() {
+        var state = vasyan.level().getBlockState(targetPos);
+        return !state.isAir() && !state.canBeReplaced();
+    }
+
+    /** Test seam exposing the resolved goal without exposing action state publicly. */
+    VasyanGoal goalForTargetForTest() {
+        return goal;
     }
 
     /**
