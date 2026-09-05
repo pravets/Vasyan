@@ -35,10 +35,17 @@ import java.util.List;
 public class VasyanNodeEvaluator extends WalkNodeEvaluator {
 
     private final Level world;
+    @Nullable
+    private BlockPos navigationTarget;
 
     public VasyanNodeEvaluator(Mob mob, Level level) {
         this.mob = mob;
         this.world = level;
+    }
+
+    /** Sets the active path target for target-aware special edge generation. */
+    public void setNavigationTarget(@Nullable BlockPos target) {
+        this.navigationTarget = target;
     }
 
     @Override
@@ -183,6 +190,11 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
      * the navigation layer places the pillar block under the bot.
      */
     private void tryPillarUpEdge(List<VasyanEdge> edges, Node current, BlockPos pos) {
+        if (navigationTarget != null
+                && Math.abs(pos.getY() - navigationTarget.getY())
+                    < Math.abs(pos.getY() + 1 - navigationTarget.getY())) {
+            return;
+        }
         BlockPos above = pos.above();
         if (!isOpen(above) || !isOpen(above.above())) {
             return;

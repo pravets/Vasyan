@@ -183,6 +183,21 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void doesNotGeneratePillarUpWhenItIncreasesDistanceToSameLevelTarget() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        evaluator.setNavigationTarget(BOT.east(3));
+
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(edges, BOT.above(), MoveType.PILLAR_UP),
+            "a same-level approach must not climb when climbing increases target distance");
+    }
+
+    @Test
     void generatesNoDigNeighborWhenFootObstacleIsUnbreakable() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
