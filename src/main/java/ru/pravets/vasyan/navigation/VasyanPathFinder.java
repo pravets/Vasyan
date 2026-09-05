@@ -78,8 +78,12 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
         }
     }
 
-    private static float heuristic(Node node, List<BlockPos> targets) {
-        return 0;
+    static float heuristic(Node node, List<BlockPos> targets) {
+        return (float) targets.stream()
+            .mapToInt(target -> Math.max(Math.max(Math.abs(node.x - target.getX()),
+                Math.abs(node.y - target.getY())), Math.abs(node.z - target.getZ())))
+            .min()
+            .orElse(0);
     }
 
     private VasyanPath reconstruct(SearchState end, List<BlockPos> targets) {

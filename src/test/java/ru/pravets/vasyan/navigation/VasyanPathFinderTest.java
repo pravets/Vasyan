@@ -14,9 +14,29 @@ import java.util.Set;
 import java.util.IdentityHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class VasyanPathFinderTest {
+    @Test
+    void heuristicUsesChebyshevDistanceForDiagonalAndAxisMoves() {
+        Node origin = node(0, 0, 0);
+
+        assertEquals(4, VasyanPathFinder.heuristic(origin, List.of(new BlockPos(4, 4, 4))));
+        assertEquals(7, VasyanPathFinder.heuristic(origin, List.of(new BlockPos(7, 2, 3))));
+    }
+
+    @Test
+    void heuristicUsesNearestOfMultipleTargets() {
+        assertEquals(2, VasyanPathFinder.heuristic(node(10, 10, 10), List.of(
+            new BlockPos(20, 10, 10), new BlockPos(12, 8, 9))));
+    }
+
+    @Test
+    void heuristicDoesNotOverestimateSpecialEdgeCosts() {
+        assertEquals(5, VasyanPathFinder.heuristic(node(0, 0, 0), List.of(new BlockPos(5, 0, 0))));
+    }
+
     @Test
     void reconstructsMixedTransitionsAndKeepsSameCoordinateAlternatives() {
         Node start = node(0, 64, 0), walked = node(1, 64, 0), dug = node(2, 64, 0);
@@ -102,6 +122,35 @@ class VasyanPathFinderTest {
 
         pathFinder.findPath(null, null, Set.of(), 32, 0, 1.0F);
         assertNull(evaluator.navigationTarget);
+    }
+
+    @Test
+    void reachesGoalDirectedDigRouteWithinVisitedBudget() {
+        Node start = node(141, 201, 6);
+        Node digTarget = node(149, 201, 6);
+        Node goal = node(157, 201, 0);
+        Node routeStep = node(153, 201, 3);
+        Node distractorA = node(141, 201, 7);
+        Node distractorB = node(142, 201, 7);
+        Node distractorC = node(143, 201, 7);
+        Node distractorD = node(144, 201, 7);
+
+        Map<Node, List<VasyanEdge>> edges = new IdentityHashMap<>();
+        edges.put(start, List.of(
+            edge(start, distractorA, MoveType.WALK, 1, null, null, null),
+            edge(start, digTarget, MoveType.DIG, 1, new BlockPos(149, 201, 6),
+                new BlockPos(149, 202, 6), null)));
+        edges.put(distractorA, List.of(edge(distractorA, distractorB, MoveType.WALK, 1, null, null, null)));
+        edges.put(distractorB, List.of(edge(distractorB, distractorC, MoveType.WALK, 1, null, null, null)));
+        edges.put(distractorC, List.of(edge(distractorC, distractorD, MoveType.WALK, 1, null, null, null)));
+        edges.put(digTarget, List.of(edge(digTarget, routeStep, MoveType.WALK, 1, null, null, null)));
+        edges.put(routeStep, List.of(edge(routeStep, goal, MoveType.WALK, 1, null, null, null)));
+
+        VasyanPath path = (VasyanPath) new VasyanPathFinder(new FixtureEvaluator(start, edges), 6)
+            .findPath(null, null, Set.of(goal.asBlockPos()), 32, 0, 1.0F);
+
+        assertNotNull(path);
+        assertEquals(MoveType.DIG, path.transitions().get(0).moveType());
     }
 
     private static Node node(int x, int y, int z) { return new Node(x, y, z); }
