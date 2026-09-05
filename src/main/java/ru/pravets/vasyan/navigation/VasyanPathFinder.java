@@ -6,6 +6,7 @@ import net.minecraft.world.level.PathNavigationRegion;
 import net.minecraft.world.level.pathfinder.Node;
 import net.minecraft.world.level.pathfinder.Path;
 import ru.pravets.vasyan.VasyanMod;
+import ru.pravets.vasyan.config.VasyanConfig;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -43,7 +44,7 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
                 .min(Comparator.comparingDouble(start.asBlockPos()::distSqr))
                 .orElse(null));
             SearchState initial = new SearchState(start, null, null, 0,
-                heuristic(start, targetList));
+                heuristic(start, targetList, configuredDigCost(), configuredPlaceCost()));
             PriorityQueue<SearchState> open = new PriorityQueue<>(Comparator.comparingDouble(s -> s.f));
             Map<SearchKey, SearchState> best = new HashMap<>();
             Set<SearchKey> closed = new HashSet<>();
@@ -66,7 +67,7 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
                     SearchState old = best.get(key);
                     if (closed.contains(key) || (old != null && cost >= old.g)) continue;
                     SearchState candidate = new SearchState(next, state, edge, cost,
-                        cost + heuristic(next, targetList));
+                        cost + heuristic(next, targetList, configuredDigCost(), configuredPlaceCost()));
                     best.put(key, candidate);
                     open.add(candidate);
                 }
@@ -84,6 +85,30 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
                 Math.abs(node.y - target.getY())), Math.abs(node.z - target.getZ())))
             .min()
             .orElse(0);
+    }
+
+    private static int configuredDigCost() {
+        try { return VasyanConfig.NAV_DIG_COST.get(); } catch (IllegalStateException ignored) { return 4; }
+    }
+
+    private static int configuredPlaceCost() {
+        try { return VasyanConfig.NAV_PLACE_COST.get(); } catch (IllegalStateException ignored) { return 4; }
+    }
+
+    /**
+     * Returns a lower bound for the configured edge model. DIG can cross two
+     * horizontal cells, while PLACE and PILLAR_UP cross one; a zero-cost
+     * mutation makes every non-zero distance bound unsafe.
+     */
+    static float heuristic(Node node, List<BlockPos> targets, int digCost, int placeCost) {
+        float perCoordinate = Math.min(1f, Math.min(digCost / 2f, placeCost));
+        perCoordinate = Math.min(perCoordinate, (placeCost + 1) / 1f);
+        if (perCoordinate <= 0) return 0;
+        return (float) targets.stream()
+            .mapToInt(target -> Math.max(Math.max(Math.abs(node.x - target.getX()),
+                Math.abs(node.y - target.getY())), Math.abs(node.z - target.getZ())))
+            .min()
+            .orElse(0) * perCoordinate;
     }
 
     private VasyanPath reconstruct(SearchState end, List<BlockPos> targets) {

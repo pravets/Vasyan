@@ -38,6 +38,15 @@ class VasyanPathFinderTest {
     }
 
     @Test
+    void heuristicUsesSafeMinimumCostPerMutationDisplacement() {
+        Node origin = node(0, 0, 0);
+
+        assertEquals(8, VasyanPathFinder.heuristic(origin, List.of(new BlockPos(8, 0, 0)), 4, 4));
+        assertEquals(0, VasyanPathFinder.heuristic(origin, List.of(new BlockPos(8, 0, 0)), 0, 4));
+        assertEquals(0, VasyanPathFinder.heuristic(origin, List.of(new BlockPos(8, 0, 0)), 4, 0));
+    }
+
+    @Test
     void reconstructsMixedTransitionsAndKeepsSameCoordinateAlternatives() {
         Node start = node(0, 64, 0), walked = node(1, 64, 0), dug = node(2, 64, 0);
         Node placed = node(3, 64, 0), pillared = node(3, 65, 0);
@@ -146,7 +155,7 @@ class VasyanPathFinderTest {
         edges.put(digTarget, List.of(edge(digTarget, routeStep, MoveType.WALK, 1, null, null, null)));
         edges.put(routeStep, List.of(edge(routeStep, goal, MoveType.WALK, 1, null, null, null)));
 
-        VasyanPath path = (VasyanPath) new VasyanPathFinder(new FixtureEvaluator(start, edges), 6)
+        VasyanPath path = (VasyanPath) new VasyanPathFinder(new FixtureEvaluator(start, edges), 4)
             .findPath(null, null, Set.of(goal.asBlockPos()), 32, 0, 1.0F);
 
         assertNotNull(path);
