@@ -115,7 +115,7 @@ class ScenarioKSearchTest extends AbstractMinecraftTest {
     @Test
     void findsCourseRouteWithAllPlannedEdges() {
         VasyanNodeEvaluator evaluator = new ReproEvaluator(mob, level);
-        VasyanPathFinder finder = new VasyanPathFinder(evaluator, 1000);
+        VasyanPathFinder finder = new VasyanPathFinder(evaluator, 768);
         Path path = finder.findPath(null, mob, Set.of(TARGET), 48, 0, 1.0F);
         assertNotNull(path, "search must reach the course target instead of dying in the void");
         assertTrue(path instanceof VasyanPath, "search must return an edge-aware path");

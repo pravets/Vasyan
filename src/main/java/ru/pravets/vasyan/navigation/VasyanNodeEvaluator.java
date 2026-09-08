@@ -190,11 +190,19 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
      * the navigation layer places the pillar block under the bot.
      *
      * <p>No target gating is applied here: pillar edges are offered whenever
-     * the column is open and scaffold is available. Climbing onto a block the
-     * bot was sent to approach (rather than cross) is prevented at the goal
-     * layer, which steers solid-block approaches to an adjacent cell.</p>
+     * the column is open, scaffold is available, and at least one horizontal
+     * exit is blocked. Climbing from a fully open cell can never improve a
+     * route (vanilla walking already covers every exit), so generating the
+     * edge there would only flood the search with useless climb states and
+     * burn the whole visited budget before the goal is reached. Climbing onto
+     * a block the bot was sent to approach (rather than cross) is prevented
+     * at the goal layer, which steers solid-block approaches to an adjacent
+     * cell.</p>
      */
     private void tryPillarUpEdge(List<VasyanEdge> edges, Node current, BlockPos pos) {
+        if (!hasBlockedExit(pos)) {
+            return;
+        }
         BlockPos above = pos.above();
         if (!isOpen(above) || !isOpen(above.above())) {
             return;
@@ -218,6 +226,22 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     /** Whether the block at {@code pos} may be broken and doing so is safe. */
     private boolean canDig(BlockPos pos) {
         return DigRules.isSafeToDig(world, pos);
+    }
+
+    /**
+     * Whether at least one horizontal direction from {@code pos} is not
+     * plain-walkable: a solid foot cell, missing headroom, or missing support
+     * below. Pillaring up is only ever useful to leave such a cell; from a
+     * fully open cell every exit is already walkable.
+     */
+    private boolean hasBlockedExit(BlockPos pos) {
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos foot = pos.relative(direction);
+            if (!isOpen(foot) || !isOpen(foot.above()) || isOpen(foot.below())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Whether the bot carries a whitelisted block it can place as scaffold at {@code refPos}. */

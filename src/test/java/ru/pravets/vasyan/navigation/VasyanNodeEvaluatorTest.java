@@ -228,6 +228,24 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void generatesNoPillarUpWhenEveryExitIsPlainWalkable() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        // Open floor in every direction: climbing here can never improve a
+        // route, so the edge must not flood the search (Scenario K budget).
+        for (int x = 8; x <= 13; x++) {
+            for (int z = 8; z <= 13; z++) {
+                states.put(new BlockPos(x, 69, z), Blocks.DIRT.defaultBlockState());
+            }
+        }
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+
+        assertNull(find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.above(), MoveType.PILLAR_UP),
+            "a fully open cell must not offer a pillar edge");
+    }
+
+    @Test
     void generatesPillarUpAboveCurrentPositionWithFloor() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
