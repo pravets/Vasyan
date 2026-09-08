@@ -882,12 +882,22 @@ def test_pathfinding_scenarios(workdir, jar_path):
         rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz - 3} {kx + 58} {PLAT_Y + 8} {kz + 3} minecraft:air")
         # Side walls so the only way is forward: every obstacle below spans
         # the full corridor width.
-        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz - 4} {kx + 58} {PLAT_Y + 3} {kz - 4} minecraft:smooth_stone")
-        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz + 4} {kx + 58} {PLAT_Y + 3} {kz + 4} minecraft:smooth_stone")
-        # (a) 2-block-high dirt wall: vanilla cannot jump it, the engine must
-        #     cross via a planned DIG edge (dug silently by the navigation,
-        #     NOT via the ladder's "dug through" line).
-        rcon.command(f"fill {kx + 12} {PLAT_Y + 1} {kz - 3} {kx + 12} {PLAT_Y + 2} {kz + 3} minecraft:dirt")
+        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz - 4} {kx + 58} {PLAT_Y + 4} {kz - 4} minecraft:smooth_stone")
+        rcon.command(f"fill {kx - 2} {PLAT_Y + 1} {kz + 4} {kx + 58} {PLAT_Y + 4} {kz + 4} minecraft:smooth_stone")
+        # Roof over the whole corridor: without it the planner legitimately
+        # pillars up and walks OVER every obstacle (cheaper than digging and
+        # bridging), so the course would exercise none of the mutation edges.
+        # With the roof, walking above the obstacles cannot fit, and the side
+        # walls cannot be tunneled into the void (no landing surface).
+        rcon.command(f"fill {kx - 2} {PLAT_Y + 5} {kz - 4} {kx + 58} {PLAT_Y + 6} {kz + 4} minecraft:smooth_stone")
+        # Enclosed corridor goes dark: keep mobs from spawning onto the course.
+        rcon.command("difficulty peaceful")
+        rcon.command("gamerule doMobSpawning false")
+        # (a) 4-block-high dirt wall: too tall to walk over under the roof, so
+        #     the engine must cross via a planned DIG tunnel at foot level
+        #     (dug silently by the navigation, NOT via the ladder's
+        #     "dug through" line).
+        rcon.command(f"fill {kx + 12} {PLAT_Y + 1} {kz - 3} {kx + 12} {PLAT_Y + 4} {kz + 3} minecraft:dirt")
         # (b) Gap 3 wide and 5 deep: deeper than maxDropDown (default 3), so
         #     vanilla cannot walk down into it and the engine must BRIDGE it
         #     with PLACE edges (one scaffold block per gap cell).

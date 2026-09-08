@@ -120,17 +120,13 @@ class VasyanPathFinderTest {
     }
 
     @Test
-    void clearsNavigationTargetAfterEachSearch() {
+    void returnsNullWhenTargetSetIsEmpty() {
         Node start = node(0, 64, 0), goal = node(1, 64, 0);
         FixtureEvaluator evaluator = new FixtureEvaluator(start,
             Map.of(start, List.of(edge(start, goal, MoveType.WALK, 1, null, null, null))));
         VasyanPathFinder pathFinder = new VasyanPathFinder(evaluator, 100);
 
-        pathFinder.findPath(null, null, Set.of(goal.asBlockPos()), 32, 0, 1.0F);
-        assertNull(evaluator.navigationTarget);
-
-        pathFinder.findPath(null, null, Set.of(), 32, 0, 1.0F);
-        assertNull(evaluator.navigationTarget);
+        assertNull(pathFinder.findPath(null, null, Set.of(), 32, 0, 1.0F));
     }
 
     @Test
@@ -170,9 +166,7 @@ class VasyanPathFinderTest {
     private static final class FixtureEvaluator extends VasyanNodeEvaluator {
         private final Node start;
         private final Map<Node, List<VasyanEdge>> edges;
-        private BlockPos navigationTarget;
         FixtureEvaluator(Node start, Map<Node, List<VasyanEdge>> edges) { super(null, null); this.start = start; this.edges = edges; }
-        @Override public void setNavigationTarget(BlockPos target) { this.navigationTarget = target; }
         @Override public Node getStart() { return start; }
         @Override public void prepare(PathNavigationRegion region, Mob mob) { }
         @Override public void done() { }

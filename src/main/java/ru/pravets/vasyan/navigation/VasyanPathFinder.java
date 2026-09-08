@@ -40,9 +40,6 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
             int limit = (int) (maxVisitedNodes * accuracy);
             if (limit <= 0) return null;
             List<BlockPos> targetList = List.copyOf(targets);
-            vasyanEvaluator.setNavigationTarget(targetList.stream()
-                .min(Comparator.comparingDouble(start.asBlockPos()::distSqr))
-                .orElse(null));
             SearchState initial = new SearchState(start, null, null, 0,
                 heuristic(start, targetList, configuredDigCost(), configuredPlaceCost()));
             PriorityQueue<SearchState> open = new PriorityQueue<>(Comparator.comparingDouble(s -> s.f));
@@ -74,7 +71,6 @@ public class VasyanPathFinder extends net.minecraft.world.level.pathfinder.PathF
             }
             return reached == null ? null : reconstruct(reached, targetList);
         } finally {
-            vasyanEvaluator.setNavigationTarget(null);
             vasyanEvaluator.done();
         }
     }

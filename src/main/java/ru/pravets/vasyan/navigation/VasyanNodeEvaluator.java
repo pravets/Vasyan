@@ -35,17 +35,17 @@ import java.util.List;
 public class VasyanNodeEvaluator extends WalkNodeEvaluator {
 
     private final Level world;
-    @Nullable
-    private BlockPos navigationTarget;
+
+    /**
+     * How far below a DIG destination the landing-surface scan may look.
+     * Bounding the scan keeps edge evaluation cheap; a landing surface deeper
+     * than this means the drop is far beyond any walk-down limit anyway.
+     */
+    private static final int MAX_DIG_DESTINATION_SCAN = 32;
 
     public VasyanNodeEvaluator(Mob mob, Level level) {
         this.mob = mob;
         this.world = level;
-    }
-
-    /** Sets the active path target for target-aware special edge generation. */
-    public void setNavigationTarget(@Nullable BlockPos target) {
-        this.navigationTarget = target;
     }
 
     @Nullable
@@ -130,9 +130,13 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
     /**
      * DIG edge: the foot cell one step in {@code direction} is a safe breakable
      * block, the head cell is breakable the same way or already passable, and the
-     * two cells beyond the obstacle are passable (open and not lava). The edge
-     * lands beyond the obstacle and prices the foot dig; the navigation layer
-     * clears any head block too.
+     * two cells beyond the obstacle are passable (open and not lava) with a
+     * reachable landing: scanning down from the destination must find solid
+     * ground within the walk-down limit. A bottomless column is never a DIG
+     * destination: the bot would tunnel into the void and the search would burn
+     * its whole node budget bridging nowhere. The edge lands beyond the
+     * obstacle and prices the foot dig; the navigation layer clears any head
+     * block too.
      */
     private void tryDigEdge(List<VasyanEdge> edges, Node current, BlockPos pos, Direction direction) {
         BlockPos foot = pos.relative(direction);
@@ -145,16 +149,17 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
             return;
         }
         int maxDropDown = VasyanConfig.NAV_MAX_DROP_DOWN.get();
-        int drop = 0;
         BlockPos support = beyond.below();
-        while (drop <= maxDropDown && isOpen(support)) {
+        int drop = 0;
+        while (isOpen(support) && drop <= MAX_DIG_DESTINATION_SCAN
+                && !world.isOutsideBuildHeight(support)) {
             drop++;
             support = support.below();
         }
-        // Unbounded mock/void space has no known landing surface; only reject a
-        // shaft when a solid support is actually found deeper than the limit.
-        boolean hasDeepSupport = drop > maxDropDown && !isOpen(support);
-        if (hasDeepSupport) {
+        boolean landed = !isOpen(support);
+        // No landing surface at all, or a landing deeper than the walk-down
+        // limit: digging toward it strands the bot, so refuse the edge.
+        if (!landed || drop > maxDropDown) {
             return;
         }
         Node node = getNode(beyond.getX(), beyond.getY(), beyond.getZ());
@@ -183,11 +188,13 @@ public class VasyanNodeEvaluator extends WalkNodeEvaluator {
      * PILLAR_UP edge: the two cells directly above are open and the bot
      * carries a scaffold block. The edge lands one block up in the same column;
      * the navigation layer places the pillar block under the bot.
+     *
+     * <p>No target gating is applied here: pillar edges are offered whenever
+     * the column is open and scaffold is available. Climbing onto a block the
+     * bot was sent to approach (rather than cross) is prevented at the goal
+     * layer, which steers solid-block approaches to an adjacent cell.</p>
      */
     private void tryPillarUpEdge(List<VasyanEdge> edges, Node current, BlockPos pos) {
-        if (navigationTarget != null && pos.getY() >= navigationTarget.getY()) {
-            return;
-        }
         BlockPos above = pos.above();
         if (!isOpen(above) || !isOpen(above.above())) {
             return;

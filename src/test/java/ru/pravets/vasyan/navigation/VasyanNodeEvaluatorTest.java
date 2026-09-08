@@ -183,56 +183,57 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
-    void doesNotGeneratePillarUpWhenItIncreasesDistanceToSameLevelTarget() {
+    void generatesPillarUpOnSameLevelApproach() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        evaluator.setNavigationTarget(BOT.east(3));
 
         List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
 
-        assertNull(find(edges, BOT.above(), MoveType.PILLAR_UP),
-            "a same-level approach must not climb when climbing increases target distance");
+        assertNotNull(find(edges, BOT.above(), MoveType.PILLAR_UP),
+            "the evaluator is target-blind: pillar edges are offered on level ground, "
+                + "approach semantics belong to the goal layer");
     }
 
     @Test
-    void doesNotGeneratePillarUpAtSameYAsNavigationTarget() {
+    void generatesPillarUpBeforeASameLevelWall() {
         Map<BlockPos, BlockState> states = new HashMap<>();
-        BlockPos current = new BlockPos(BOT.getX(), 201, BOT.getZ());
-        states.put(current.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2).below(), Blocks.DIRT.defaultBlockState());
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        evaluator.setNavigationTarget(new BlockPos(BOT.getX() + 3, 201, BOT.getZ()));
 
-        assertNull(find(evaluator.getEdges(new Node(current.getX(), current.getY(), current.getZ())),
-            current.above(), MoveType.PILLAR_UP));
+        assertNotNull(find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
+            BOT.above(), MoveType.PILLAR_UP),
+            "a same-level wall must not suppress the pillar edge (Scenario K cliff)");
     }
 
     @Test
-    void doesNotGeneratePillarUpAboveNavigationTarget() {
+    void generatesPillarUpAboveCurrentPosition() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         BlockPos current = new BlockPos(BOT.getX(), 202, BOT.getZ());
         states.put(current.below(), Blocks.DIRT.defaultBlockState());
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        evaluator.setNavigationTarget(new BlockPos(BOT.getX() + 3, 201, BOT.getZ()));
 
-        assertNull(find(evaluator.getEdges(new Node(current.getX(), current.getY(), current.getZ())),
-            current.above(), MoveType.PILLAR_UP));
+        assertNotNull(find(evaluator.getEdges(new Node(current.getX(), current.getY(), current.getZ())),
+            current.above(), MoveType.PILLAR_UP),
+            "an open column with scaffold must offer a pillar edge regardless of height");
     }
 
     @Test
-    void generatesPillarUpWhenNavigationTargetIsHigher() {
+    void generatesPillarUpAboveCurrentPositionWithFloor() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
-        evaluator.setNavigationTarget(new BlockPos(BOT.getX() + 3, BOT.getY() + 1, BOT.getZ()));
 
         assertNotNull(find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
             BOT.above(), MoveType.PILLAR_UP));
@@ -304,11 +305,62 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
     }
 
     @Test
+    void generatesNoDigNeighborWhenDestinationHasNoLandingSurface() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        // Air column below the destination, no floor anywhere: digging toward a
+        // bottomless destination strands the bot and floods the search with
+        // bridging dead ends, so no DIG edge may be offered (Scenario K void).
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(edges, BOT.east(2), MoveType.DIG),
+            "a bottomless DIG destination must not produce a DIG edge");
+    }
+
+    @Test
+    void generatesNoDigNeighborWhenLandingIsDeeperThanMaxDropDown() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        // Floor 5 below the destination (deeper than NAV_MAX_DROP_DOWN = 3):
+        // the bot cannot safely land after breaking through the wall.
+        states.put(BOT.east(2).below(5), Blocks.STONE.defaultBlockState());
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNull(find(edges, BOT.east(2), MoveType.DIG),
+            "a landing deeper than maxDropDown must not produce a DIG edge");
+    }
+
+    @Test
+    void generatesDigNeighborWhenLandingIsWithinDropLimit() {
+        Map<BlockPos, BlockState> states = new HashMap<>();
+        states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        // Floor 2 below the destination: within NAV_MAX_DROP_DOWN, walk-down is safe.
+        states.put(BOT.east(2).below(2), Blocks.STONE.defaultBlockState());
+        mobCarrying(Blocks.DIRT);
+        VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
+        List<VasyanEdge> edges = evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ()));
+
+        assertNotNull(find(edges, BOT.east(2), MoveType.DIG),
+            "a landing within maxDropDown must keep the DIG edge");
+    }
+
+    @Test
     void doesNotReAddNeighborsAlreadyPresentOrDoubleTheirCost() {
         Map<BlockPos, BlockState> states = new HashMap<>();
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2).below(), Blocks.DIRT.defaultBlockState());
 
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
@@ -428,6 +480,7 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2).below(), Blocks.DIRT.defaultBlockState());
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states));
         VasyanEdge first = find(evaluator.getEdges(new Node(BOT.getX(), BOT.getY(), BOT.getZ())),
@@ -481,6 +534,7 @@ class VasyanNodeEvaluatorTest extends AbstractMinecraftTest {
         states.put(BOT.below(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east(), Blocks.DIRT.defaultBlockState());
         states.put(BOT.east().above(), Blocks.DIRT.defaultBlockState());
+        states.put(BOT.east(2).below(), Blocks.DIRT.defaultBlockState());
         mobCarrying(Blocks.DIRT);
         VasyanNodeEvaluator evaluator = new VasyanNodeEvaluator(mob, levelWith(states)) {
             @Override

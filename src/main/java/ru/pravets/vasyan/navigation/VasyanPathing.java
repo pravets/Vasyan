@@ -829,10 +829,13 @@ public final class VasyanPathing {
     }
 
     /**
-     * Where to put a scaffold block: the gap right below the feet first (bridging /
-     * pillaring), then the open foot-level cell directly ahead.
+     * Where to put a scaffold block: the deep gap right below the feet first
+     * (bridging), then an open foot-level cell directly ahead — but only when
+     * that cell is itself a deep gap. Placing ahead on ordinary terrain would
+     * build a stray block behind/ahead of the bot on a route the planner never
+     * asked for; climbs stay with the vertical recovery ladder.
      *
-     * @return an open (air / liquid / replaceable) position, or {@code null} if none
+     * @return an open deep-gap position, or {@code null} if none
      */
     @Nullable
     private static BlockPos scaffoldPosition(VasyanEntity vasyan, VasyanGoal goal) {
@@ -842,7 +845,7 @@ public final class VasyanPathing {
             return below;
         }
         BlockPos ahead = aheadPosition(vasyan, goal);
-        return isOpen(level, ahead) ? ahead : null;
+        return isOpen(level, ahead) && isDeepGap(level, ahead) ? ahead : null;
     }
 
     /** Whether a scaffold block can be placed into {@code pos} (air, liquid or replaceable). */
