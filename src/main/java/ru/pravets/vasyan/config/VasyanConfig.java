@@ -124,6 +124,8 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_TTL_TICKS;
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_RADIUS;
     public static final ForgeConfigSpec.IntValue GATHER_LEAF_DIG_MAX_DEPTH;
+    public static final ForgeConfigSpec.IntValue GATHER_ENROUTE_SCAN_INTERVAL;
+    public static final ForgeConfigSpec.IntValue GATHER_MAX_EXPAND_SWEEPS;
     public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
@@ -259,8 +261,10 @@ public class VasyanConfig {
 
         builder.comment("Vasyan Gathering (resource search) Configuration",
             "How Vasyan searches for resources: a walking spiral of look-out",
-            "stations around the start point, scanning with vision at each station.",
-            "Vasyan never digs tunnels - he only mines visible blocks.")
+            "stations around the start point, scanning with vision at each station",
+            "and opportunistically while walking between them.",
+            "Vasyan never digs tunnels - he only mines visible blocks. When the",
+            "surface is exhausted he returns to the player and reports.")
             .push("gather");
 
         GATHER_SEARCH_RADIUS = builder
@@ -293,6 +297,20 @@ public class VasyanConfig {
                 "is larger than the generic tunnel cap. It applies only to routes",
                 "towards a log target; all other routes keep digThroughMaxDepth.")
             .defineInRange("leafDigMaxDepth", 12, 0, 64);
+
+        GATHER_ENROUTE_SCAN_INTERVAL = builder
+            .comment("Ticks between opportunistic vision scans while walking between",
+                "search stations, so the bot picks up resources it walks past",
+                "(cliff faces, cave mouths) instead of only scanning at stations.",
+                "20 ticks = 1 second.")
+            .defineInRange("enrouteScanIntervalTicks", 20, 5, 200);
+
+        GATHER_MAX_EXPAND_SWEEPS = builder
+            .comment("Full compass sweeps with zero finds after the near rings before",
+                "the surface is declared exhausted: the bot returns to the player",
+                "and reports instead of wandering outward forever.",
+                "0 means the run ends as soon as the near rings are exhausted.")
+            .defineInRange("maxExpandSweeps", 2, 0, 16);
 
         builder.pop();
 
