@@ -12,6 +12,8 @@ import ru.pravets.vasyan.action.Task;
 import ru.pravets.vasyan.entity.VasyanEntity;
 import ru.pravets.vasyan.entity.VasyanInventory;
 import ru.pravets.vasyan.navigation.PathBudgets;
+import ru.pravets.vasyan.navigation.GoalAdjacent;
+import ru.pravets.vasyan.navigation.GoalNear;
 import ru.pravets.vasyan.testutil.AbstractMinecraftTest;
 
 import java.util.List;
@@ -20,6 +22,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
@@ -136,5 +139,30 @@ class PathfindActionTest extends AbstractMinecraftTest {
         assertNotNull(result, "expired think budget must finish the action on the first tick");
         assertFalse(result.isSuccess(), "exhausted think budget must route to a failure result");
         assertEquals("Pathfinding budget exhausted (think timeout)", result.getMessage());
+    }
+
+    @Test
+    void solidTargetUsesAdjacentGoalAndDoesNotAcceptTheTopCell() {
+        BlockPos target = new BlockPos(141, 201, 6);
+        when(level.getBlockState(target)).thenReturn(Blocks.OBSIDIAN.defaultBlockState());
+        PathfindAction action = actionAt(141, 201, 6, 141, 202, 6,
+            PathBudgets.start(System.nanoTime(), 60_000L, 50L, 16));
+
+        action.start();
+
+        assertTrue(action.goalForTargetForTest() instanceof GoalAdjacent);
+        action.tick();
+        assertNull(action.getResult(), "standing on top of a solid target is not arrival");
+        verify(navigation).moveTo(141.5, 201, 5.5, 1.0);
+    }
+
+    @Test
+    void airTargetRetainsOrdinaryNearGoal() {
+        PathfindAction action = actionAt(15, 64, 20, 0, 64, 0,
+            PathBudgets.start(System.nanoTime(), 60_000L, 50L, 16));
+
+        action.start();
+
+        assertTrue(action.goalForTargetForTest() instanceof GoalNear);
     }
 }

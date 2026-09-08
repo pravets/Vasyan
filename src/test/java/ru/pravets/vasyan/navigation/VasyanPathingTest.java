@@ -142,4 +142,28 @@ class VasyanPathingTest extends AbstractMinecraftTest {
         assertFalse(VasyanPathing.canAscendByClearing(bot, anchor, world),
             "when ascent needs placed support and no scaffold exists, escape must not be claimed");
     }
+
+    @Test
+    void ordinaryOpenCellWithSolidSupportIsNotADeepGap() {
+        BlockPos candidate = new BlockPos(147, 201, 2);
+        BlockState stone = solid();
+        BlockState air = open();
+        Level level = mock(Level.class);
+        when(level.getBlockState(any())).thenReturn(air);
+        when(level.getBlockState(candidate.below())).thenReturn(stone);
+
+        assertFalse(VasyanPathing.isDeepGap(level, candidate));
+    }
+
+    @Test
+    void genuinelyDeepGapIsADeepGap() {
+        BlockPos candidate = new BlockPos(0, 201, 0);
+        BlockState stone = solid();
+        BlockState air = open();
+        Level level = mock(Level.class);
+        when(level.getBlockState(any())).thenReturn(air);
+        when(level.getBlockState(candidate.below().below().below().below().below())).thenReturn(stone);
+
+        assertTrue(VasyanPathing.isDeepGap(level, candidate));
+    }
 }

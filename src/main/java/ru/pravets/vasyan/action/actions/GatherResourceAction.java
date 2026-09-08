@@ -102,6 +102,15 @@ public class GatherResourceAction extends BaseAction {
     /** Position of the last progress event - moving away from it also resets the timeout. */
     private BlockPos lastProgressPos;
     private int expandDir;
+    /** Outward expansions since the last adopted target - a full compass turn is 8. */
+    private static final int EXPANSIONS_PER_SWEEP = 8;
+    /** Give-up budget for the walk back to the player on surface exhaustion. */
+    private static final int RETURN_GIVE_UP_TICKS = 600; // 30s at 20 TPS
+    /** Returning to report surface exhaustion instead of searching. */
+    private boolean returningToReport;
+    /** Where the exhaustion report is delivered: nearest player, else the origin. */
+    private BlockPos returnTarget;
+    private long returnStartTick;
     private BlockPos origin;
     private ResourceSearchPlanner.SearchState searchState;
     private BlockPos routeTarget;
@@ -145,7 +154,7 @@ public class GatherResourceAction extends BaseAction {
     private int fellStallTicks;
     private int fellWaitTicks;
 
-    private enum Phase { SEARCH, ROUTING, MINING, FELL_ASCEND, FELL_DESCEND, FELL_GATHER, FELL_WAIT, FELL_CLEANUP, FINISHED }
+    private enum Phase { SEARCH, ROUTING, MINING, FELL_ASCEND, FELL_DESCEND, FELL_GATHER, FELL_WAIT, FELL_CLEANUP, RETURNING, FINISHED }
 
     private Phase phase = Phase.SEARCH;
 
@@ -202,6 +211,9 @@ public class GatherResourceAction extends BaseAction {
         veinTargets.clear();
         origin = vasyan.blockPosition();
         searchState = new ResourceSearchPlanner.SearchState(origin, 0, 0, vasyan.level().getGameTime());
+        expandDir = 0;
+        returningToReport = false;
+        returnTarget = null;
 
         // Ground movement only - never fly while gathering
         vasyan.setFlying(false);
@@ -273,6 +285,7 @@ public class GatherResourceAction extends BaseAction {
         switch (phase) {
             case SEARCH -> phaseSearch();
             case ROUTING -> phaseRouting();
+            case RETURNING -> phaseRouting(); // same machinery, flagged by returningToReport
             case MINING -> phaseMining();
             case FELL_ASCEND -> phaseFellAscend();
             case FELL_DESCEND -> phaseFellDescend();
@@ -379,6 +392,7 @@ public class GatherResourceAction extends BaseAction {
             mineTarget = mine;
             lastMineTarget = mine;
             routeTarget = mine;
+            expandDir = 0; // a find resets the outward-expansion sweep counter
             phase = Phase.ROUTING;
             return;
         }
@@ -416,6 +430,7 @@ public class GatherResourceAction extends BaseAction {
                 debugLog("SEARCH", "continue vein at " + nextVein);
                 mineTarget = nextVein;
                 routeTarget = nextVein;
+                expandDir = 0; // a find resets the outward-expansion sweep counter
                 phase = Phase.ROUTING;
                 return;
             }
@@ -424,9 +439,17 @@ public class GatherResourceAction extends BaseAction {
         // No target anywhere: advance the route
         if (!ResourceSearchPlanner.hasNext(searchState, VasyanConfig.GATHER_SEARCH_RADIUS.get(),
                 VasyanConfig.GATHER_RING_SPACING.get())) {
-            // Origin rings exhausted: keep searching outward - walk away from
-            // spawn in a compass sweep, widening each full turn, instead of
-            // giving up ("Nothing found") or standing still forever.
+            // Origin rings exhausted: expand outward in compass sweeps - but
+            // only for so long. Buried resources are invisible to a surface
+            // search, so endless wandering is replaced by an honest report:
+            // after maxExpandSweeps full turns with zero finds the bot returns
+            // to the player instead of standing still in the field. Fell mode
+            // keeps the old unbounded behavior (tree search has its own exit).
+            if (!fellMode && expandDir / EXPANSIONS_PER_SWEEP >= VasyanConfig.GATHER_MAX_EXPAND_SWEEPS.get()) {
+                debugLog("SEARCH", "surface exhausted after " + expandDir + " outward expansions");
+                beginReturning();
+                return;
+            }
             expandDir++;
             BlockPos station = expandStation();
             debugLog("SEARCH", "no targets locally, expanding outward to " + station);
@@ -479,6 +502,13 @@ public class GatherResourceAction extends BaseAction {
             routeMonitor = VasyanPathing.moveTo(vasyan, routeGoal, routeBudgets, maxDig);
         }
 
+        // Opportunistic scan: notice a resource walked past between stations
+        // (cliff face, cave mouth). During the walk back on exhaustion a find
+        // resumes the run instead of strolling past the ore.
+        if (ticksRunning % VasyanConfig.GATHER_ENROUTE_SCAN_INTERVAL.get() == 0 && adoptEnrouteTarget()) {
+            return;
+        }
+
         long nowNano = System.nanoTime();
         long gameTime = vasyan.level().getGameTime();
         BlockPos botPos = vasyan.blockPosition();
@@ -490,6 +520,11 @@ public class GatherResourceAction extends BaseAction {
         // failure (review #39).
         boolean moved = routeStartPos != null && !botPos.equals(routeStartPos);
         if (routeBudgets.thinkExpiredTicks(gameTime) && !moved && !routeMonitor.inLadderRecovery()) {
+            if (returningToReport) {
+                debugLog("RETURN", "no route to the report point, reporting from here");
+                finishExhaustionReport();
+                return;
+            }
             debugLog("ROUTING", "think budget exhausted before movement for " + routeGoal.describe());
             skipCurrentRouteTarget();
             return;
@@ -510,6 +545,10 @@ public class GatherResourceAction extends BaseAction {
         // reach-based. Water needs no special case: amphibious navigation
         // swims across ponds on its own.
         if (routeGoal.hasReached(botPos)) {
+            if (returningToReport) {
+                finishExhaustionReport(); // reached the player: deliver the report
+                return;
+            }
             if (routeTarget.equals(mineTarget)) {
                 phase = Phase.MINING; // we arrived at the resource block
             } else {
@@ -524,6 +563,11 @@ public class GatherResourceAction extends BaseAction {
         // is treated as local-only: we deliberately do not teleport out of
         // water, so the failure must not poison global unreachable memory.
         if (routeMonitor.finished()) {
+            if (returningToReport) {
+                debugLog("RETURN", "path monitor gave up on the way back, reporting from here");
+                finishExhaustionReport();
+                return;
+            }
             debugLog("ROUTING", "path monitor gave up on " + routeGoal.describe());
             if (shouldKeepLocalOnly(true, vasyan.isInWater())) {
                 skipCurrentRouteTarget(true);
@@ -531,6 +575,17 @@ public class GatherResourceAction extends BaseAction {
                 skipCurrentRouteTarget();
             }
             return;
+        }
+
+        if (returningToReport) {
+            // The report must be delivered even if the player keeps walking:
+            // follow the moving target, but never chase forever.
+            if (gameTime - returnStartTick >= RETURN_GIVE_UP_TICKS) {
+                debugLog("RETURN", "could not reach the report point in time, reporting from here");
+                finishExhaustionReport();
+                return;
+            }
+            refreshReturnTarget();
         }
 
         routeBudgets = routeBudgets.nextTick(nowNano);
@@ -848,6 +903,105 @@ public class GatherResourceAction extends BaseAction {
             net.minecraft.world.level.levelgen.Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
             new BlockPos(x, origin.getY(), z)).getY();
         return new BlockPos(x, y, z);
+    }
+
+    /**
+     * Opportunistic vision scan while walking: adopts a resource the bot walks
+     * past (cliff face, cave mouth) instead of noticing it only at stations.
+     * Light by design - ray-visible blocks only, no nearby cube scan. Returns
+     * true when a target was adopted (the caller routes to it on the next tick).
+     */
+    private boolean adoptEnrouteTarget() {
+        if (fellMode || fellGatheringMaterial) {
+            return false; // tree runs have their own target machinery
+        }
+        List<BlockPos> visible = anyLogMode
+            ? VisionScanner.findVisibleAnyLog(vasyan)
+            : VisionScanner.findVisible(vasyan, miningBlocks);
+        if (visible.isEmpty()) {
+            return false;
+        }
+        boolean targetIsLog = anyLogMode
+            || (targetBlock != null && targetBlock.builtInRegistryHolder().is(net.minecraft.tags.BlockTags.LOGS));
+        long nowMem = vasyan.level().getGameTime();
+        ResourceKey<Level> dimension = vasyan.level().dimension();
+        int memoryRadius = VasyanConfig.GATHER_MEMORY_RADIUS.get();
+        BlockPos mine = visible.stream()
+            .filter(p -> !unreachableTargets.contains(p))
+            .filter(p -> !isInVerticalTrap(p))
+            .filter(p -> !GlobalResourceMemory.isUnreachable(memoryKey, dimension, p, nowMem, memoryRadius))
+            .filter(p -> !targetIsLog || !isUnderwaterTarget(p))
+            .min(Comparator.comparingDouble(p -> vasyan.distanceToSqr(p.getX() + 0.5, p.getY() + 0.5, p.getZ() + 0.5)))
+            .orElse(null);
+        if (mine == null) {
+            return false;
+        }
+        debugLog("ROUTING", "en-route target at " + mine);
+        mineTarget = mine;
+        lastMineTarget = mine;
+        routeTarget = mine;
+        expandDir = 0; // a find resets the outward-expansion sweep counter
+        if (returningToReport) {
+            returningToReport = false; // the exhausted surface just yielded - resume the run
+            phase = Phase.ROUTING;
+        }
+        return true;
+    }
+
+    /**
+     * Surface exhaustion exit: walk to the nearest player (or the origin when
+     * nobody is around) and report there, instead of standing still in the field.
+     */
+    private void beginReturning() {
+        returningToReport = true;
+        returnStartTick = vasyan.level().getGameTime();
+        returnTarget = null;
+        refreshReturnTarget();
+        mineTarget = null;
+        routeTarget = returnTarget;
+        phase = Phase.RETURNING;
+        debugLog("RETURN", "surface exhausted, returning to " + returnTarget + " to report");
+    }
+
+    /** Picks the nearest live player as the report destination, else the origin. */
+    private void refreshReturnTarget() {
+        net.minecraft.world.entity.player.Player nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (net.minecraft.world.entity.player.Player player : vasyan.level().players()) {
+            if (!player.isAlive() || player.isRemoved()) {
+                continue;
+            }
+            double distance = vasyan.distanceTo(player);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = player;
+            }
+        }
+        BlockPos next = nearest != null ? nearest.blockPosition() : origin;
+        if (!next.equals(returnTarget)) {
+            returnTarget = next;
+            routeTarget = next; // route-target change forces a fresh goal/monitor
+        }
+    }
+
+    /**
+     * Honest exhaustion finish at the report point: a partial gather completes
+     * successfully (so the LLM does not replan the same barren surface run),
+     * a zero gather fails so the planner can decide what to do next.
+     */
+    private void finishExhaustionReport() {
+        returningToReport = false;
+        gatheredCount = Math.max(0, countResource() - startResourceCount);
+        int coveredRadius = VasyanConfig.GATHER_SEARCH_RADIUS.get()
+            + 16 * (expandDir / EXPANSIONS_PER_SWEEP + 1);
+        if (gatheredCount > 0) {
+            finish(true, "Gathered " + gatheredCount + " " + resourceLabel()
+                + "; surface exhausted within ~" + coveredRadius
+                + " blocks - mining mode needed for more");
+        } else {
+            finish(false, "No " + resourceLabel() + " visible on the surface within ~" + coveredRadius
+                + " blocks - mining mode needed");
+        }
     }
 
     /**

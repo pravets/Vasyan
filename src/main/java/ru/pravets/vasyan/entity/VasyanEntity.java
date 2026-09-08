@@ -3,6 +3,7 @@ package ru.pravets.vasyan.entity;
 import ru.pravets.vasyan.action.ActionExecutor;
 import ru.pravets.vasyan.memory.VasyanMemory;
 import ru.pravets.vasyan.menu.VasyanMenu;
+import ru.pravets.vasyan.navigation.VasyanPathNavigation;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
@@ -92,8 +93,8 @@ public class VasyanEntity extends PathfinderMob {
      * workarounds; swimming removes that whole problem class.
      */
     @Override
-    protected net.minecraft.world.entity.ai.navigation.PathNavigation createNavigation(Level level) {
-        return new net.minecraft.world.entity.ai.navigation.AmphibiousPathNavigation(this, level);
+    protected VasyanPathNavigation createNavigation(Level level) {
+        return new VasyanPathNavigation(this, level);
     }
 
     @Override

@@ -124,6 +124,8 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_TTL_TICKS;
     public static final ForgeConfigSpec.IntValue GATHER_MEMORY_RADIUS;
     public static final ForgeConfigSpec.IntValue GATHER_LEAF_DIG_MAX_DEPTH;
+    public static final ForgeConfigSpec.IntValue GATHER_ENROUTE_SCAN_INTERVAL;
+    public static final ForgeConfigSpec.IntValue GATHER_MAX_EXPAND_SWEEPS;
     public static final ForgeConfigSpec.IntValue NAV_THINK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_TICK_TIMEOUT_MS;
     public static final ForgeConfigSpec.IntValue NAV_SEARCH_RADIUS;
@@ -133,6 +135,14 @@ public class VasyanConfig {
     public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_HORIZONTAL_RANGE;
     public static final ForgeConfigSpec.IntValue NAV_VERTICAL_RECOVERY_MAX_SCAFFOLD_BLOCKS;
     public static final ForgeConfigSpec.IntValue NAV_DIG_THROUGH_MAX;
+    public static final ForgeConfigSpec.IntValue NAV_DIG_COST;
+    public static final ForgeConfigSpec.IntValue NAV_PLACE_COST;
+    public static final ForgeConfigSpec.IntValue NAV_LIQUID_COST;
+    public static final ForgeConfigSpec.IntValue NAV_ENTITY_COST;
+    public static final ForgeConfigSpec.IntValue NAV_MAX_DROP_DOWN;
+    public static final ForgeConfigSpec.DoubleValue NAV_DIG_HARDNESS_FACTOR;
+    public static final ForgeConfigSpec.ConfigValue<List<? extends String>> NAV_SCAFFOLD_WHITELIST;
+    public static final ForgeConfigSpec.IntValue NAV_REPLAN_CHECK_INTERVAL_TICKS;
     public static final ForgeConfigSpec.IntValue ACTION_TICK_DELAY;
     public static final ForgeConfigSpec.BooleanValue ENABLE_CHAT_RESPONSES;
     public static final ForgeConfigSpec.IntValue MAX_ACTIVE_VASYANS;
@@ -251,8 +261,10 @@ public class VasyanConfig {
 
         builder.comment("Vasyan Gathering (resource search) Configuration",
             "How Vasyan searches for resources: a walking spiral of look-out",
-            "stations around the start point, scanning with vision at each station.",
-            "Vasyan never digs tunnels - he only mines visible blocks.")
+            "stations around the start point, scanning with vision at each station",
+            "and opportunistically while walking between them.",
+            "Vasyan never digs tunnels - he only mines visible blocks. When the",
+            "surface is exhausted he returns to the player and reports.")
             .push("gather");
 
         GATHER_SEARCH_RADIUS = builder
@@ -285,6 +297,20 @@ public class VasyanConfig {
                 "is larger than the generic tunnel cap. It applies only to routes",
                 "towards a log target; all other routes keep digThroughMaxDepth.")
             .defineInRange("leafDigMaxDepth", 12, 0, 64);
+
+        GATHER_ENROUTE_SCAN_INTERVAL = builder
+            .comment("Ticks between opportunistic vision scans while walking between",
+                "search stations, so the bot picks up resources it walks past",
+                "(cliff faces, cave mouths) instead of only scanning at stations.",
+                "20 ticks = 1 second.")
+            .defineInRange("enrouteScanIntervalTicks", 20, 5, 200);
+
+        GATHER_MAX_EXPAND_SWEEPS = builder
+            .comment("Full compass sweeps with zero finds after the near rings before",
+                "the surface is declared exhausted: the bot returns to the player",
+                "and reports instead of wandering outward forever.",
+                "0 means the run ends as soon as the near rings are exhausted.")
+            .defineInRange("maxExpandSweeps", 2, 0, 16);
 
         builder.pop();
 
@@ -346,6 +372,41 @@ public class VasyanConfig {
                 "the foot-and-head corridor. Vertical staircase recovery has its own scaffold",
                 "budget and is unaffected.")
             .defineInRange("digThroughMaxDepth", 4, 0, 64);
+
+        NAV_DIG_COST = builder
+            .comment("Base A* cost added by a DIG edge.")
+            .defineInRange("digCost", 4, 0, 1000);
+
+        NAV_PLACE_COST = builder
+            .comment("Base A* cost added by a PLACE edge (one scaffold block consumed).")
+            .defineInRange("placeCost", 4, 0, 1000);
+
+        NAV_LIQUID_COST = builder
+            .comment("Extra A* cost added to a WALK edge whose destination cell is liquid (water or lava).")
+            .defineInRange("liquidCost", 20, 0, 1000);
+
+        NAV_ENTITY_COST = builder
+            .comment("Reserved for future use: does not affect path costs yet",
+                "(per-cell entity overlap checks are too expensive to run per A* node).")
+            .defineInRange("entityCost", 8, 0, 1000);
+
+        NAV_MAX_DROP_DOWN = builder
+            .comment("Maximum drop height in blocks a route may fall in one WALK edge.")
+            .defineInRange("maxDropDown", 3, 0, 32);
+
+        NAV_DIG_HARDNESS_FACTOR = builder
+            .comment("Multiplier applied to block destroy speed when pricing a DIG edge:",
+                "total dig cost = digCost + round(destroySpeed * digHardnessFactor).")
+            .defineInRange("digHardnessFactor", 1.0, 0.0, 100.0);
+
+        NAV_SCAFFOLD_WHITELIST = builder
+            .comment("Block ids (\"minecraft:...\") the bot may use as scaffold/place material.")
+            .defineList("scaffoldWhitelist", List.of("minecraft:dirt", "minecraft:cobblestone"),
+                o -> o instanceof String s && !s.isBlank());
+
+        NAV_REPLAN_CHECK_INTERVAL_TICKS = builder
+            .comment("Ticks between path-liveness checks that may trigger a replan (10 ticks = 0.5 seconds).")
+            .defineInRange("replanCheckIntervalTicks", 10, 1, 200);
 
         builder.pop();
 
